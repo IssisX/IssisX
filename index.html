@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>3D Asteroid Tracker with SQL Backend</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: Arial, sans-serif; }
+        #canvas-container { width: 100%; height: 100%; display: block; }
+        #loading-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        #loading-status-message { font-size: 1.5em; margin-bottom: 10px; text-align: center; padding: 0 10px; }
+        #loading-progress-bar-container { width: 50%; height: 20px; background-color: #555; border-radius: 10px; overflow: hidden; margin-top: 10px;}
+        #loading-progress-bar { width: 0%; height: 100%; background-color: #4CAF50; transition: width 0.3s ease-in-out; }
+        #error-display { position: absolute; top: 10px; left: 10px; right: 10px; background-color: rgba(255,0,0,0.8); color: white; padding: 15px; border-radius: 5px; z-index: 1001; display: none; text-align: center; }
+        #ui-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        #react-root { pointer-events: auto; } /* Allow interaction with React UI */
+        .info-panel, .control-panel { background: rgba(20,20,20,0.7); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); padding: 15px; border-radius: 8px; margin:10px; pointer-events: auto; max-height: calc(100vh - 40px); overflow-y: auto; }
+        .control-panel { position: absolute; top: 10px; right: 10px; width: 300px; }
+        .info-panel { position: absolute; bottom: 10px; left: 10px; width: 280px; }
+        #fps-counter, #object-count { position: absolute; top: 10px; left: 10px; background-color: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 5px; font-size: 0.9em; }
+        #object-count { top: 50px; }
+        /* Basic styles for controls */
+        .control-panel label { display: block; margin: 8px 0; font-size: 0.95em;}
+        .control-panel input[type="range"] { width: calc(100% - 20px); margin-left: 10px;}
+        .control-panel input[type="checkbox"] { margin-right: 5px; }
+        .control-panel h4 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 5px;}
+    </style>
+
+    <!-- CDNs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon-es/0.19.0/cannon-es.min.js"></script>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+    <!-- Three.js examples -->
+    <script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://threejs.org/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://threejs.org/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://threejs.org/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://threejs.org/examples/js/postprocessing/SSAOPass.js"></script>
+    <script src="https://threejs.org/examples/js/postprocessing/OutputPass.js"></script>
+</head>
+<body>
+    <div id="loading-screen">
+        <div id="loading-status-message">Initializing...</div>
+        <div id="loading-progress-bar-container">
+            <div id="loading-progress-bar" style="width: 0%;"></div>
+        </div>
+    </div>
+    <div id="error-display"></div>
+    <div id="canvas-container"></div>
+    <div id="ui-container">
+        <div id="react-root"></div>
+        <div id="fps-counter">FPS: --</div>
+        <div id="object-count">Objects: --</div>
+    </div>
+
+    <!-- Core SQL & Initialization Logic -->
+    <script>
+        // Global error display function
+        function displayGlobalError(message) {
+            console.error("Global Error:", message);
+            const errorElement = document.getElementById('error-display');
+            if (errorElement) {
+                errorElement.textContent = message;
+                errorElement.style.display = 'block';
+            }
+            // Also update loading screen if it's visible
+            const loadingStatusElement = document.getElementById('loading-status-message');
+            if (loadingStatusElement && document.getElementById('loading-screen').style.display !== 'none') {
+                loadingStatusElement.textContent = `Error: ${message}`;
+            }
+             const loadingScreen = document.getElementById('loading-screen');
+             if(loadingScreen && loadingScreen.style.display !== 'none') {
+                loadingScreen.style.backgroundColor = 'rgba(120,0,0,0.9)'; // Dark red for error
+             }
+        }
+
+        // Global loading status updater
+        function updateLoadingStatus(message, percentage) {
+            console.log(`[Global Loading]: ${message} (${percentage}%)`);
+            const statusElement = document.getElementById('loading-status-message');
+            const progressElement = document.getElementById('loading-progress-bar');
+            if (statusElement) statusElement.textContent = message;
+            if (progressElement) progressElement.style.width = percentage + '%';
+
+            if (percentage >= 100) {
+                setTimeout(() => {
+                    const loadingScreen = document.getElementById('loading-screen');
+                    if (loadingScreen) loadingScreen.style.display = 'none';
+                }, 500);
+            }
+        }
+
+        async function executeQuery(sqlString, params = []) {
+            const requestBody = { query: sqlString };
+            try {
+                const response = await axios.post('/api/v1/sql', requestBody);
+                if (response.data && response.data.error) {
+                    throw new Error(response.data.error);
+                }
+                return response.data;
+            } catch (error) {
+                console.error("executeQuery error:", error.message, "SQL:", sqlString);
+                const errorMessage = (error.response && error.response.data && error.response.data.error) ?
+                                     error.response.data.error :
+                                     (error.isAxiosError ? `Network/API error: ${error.message}` : error.message);
+                throw new Error(errorMessage);
+            }
+        }
+
+        async function initializeDatabaseSchema() {
+            const schemaStatements = [
+                "CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, key TEXT, value TEXT, updated_at TEXT);",
+                "CREATE TABLE IF NOT EXISTS asteroids (id TEXT PRIMARY KEY, name TEXT, diameter REAL, hazardous INTEGER, approach_date TEXT, raw TEXT);",
+                "CREATE TABLE IF NOT EXISTS meta (id TEXT PRIMARY KEY, type TEXT, value TEXT);"
+            ];
+            for (const stmt of schemaStatements) {
+                try {
+                    await executeQuery(stmt);
+                    console.log(`Executed: ${stmt.substring(0, 40)}...`);
+                } catch (e) {
+                    console.error(`Failed to execute schema statement: ${stmt}`, e.message);
+                    throw e; // Re-throw to be caught by main startup
+                }
+            }
+            console.log("Database schema initialization complete.");
+        }
+        
+        async function initializeSettings() {
+            updateLoadingStatus('Loading user settings...', 8);
+            const defaultSettings = {
+                id: 'user-settings', timeScale: 1, showNEOs: true, showMainBelt: true,
+                showTNOs: true, showOrbits: true, scaleObjects: true, simulatePhysics: false,
+                quality: 'high', bloomStrength: 0.6, ssaoEnabled: true
+            };
+            let currentSettings = { ...defaultSettings };
+            try {
+                const query = "SELECT value FROM settings WHERE id = 'user-settings' AND key = 'all';";
+                const response = await executeQuery(query);
+                if (response && response.result && response.result.length > 0 && response.result[0].value) {
+                    try {
+                        const storedSettings = JSON.parse(response.result[0].value);
+                        currentSettings = { ...defaultSettings, ...storedSettings }; // Merge, ensuring defaults for new keys
+                        updateLoadingStatus('User settings loaded from database.', 10);
+                    } catch (parseError) {
+                        console.error("Failed to parse stored settings, using defaults:", parseError.message);
+                        updateLoadingStatus('Failed to parse settings, default settings applied.', 10);
+                    }
+                } else {
+                    console.log("No existing settings found, using defaults.");
+                    updateLoadingStatus('No stored settings found, default settings applied.', 10);
+                }
+                const settingsJson = JSON.stringify(currentSettings);
+                const updatedAt = new Date().toISOString();
+                const escapedSettingsJson = settingsJson.replace(/'/g, "''");
+                const upsertQuery = `INSERT OR REPLACE INTO settings (id, key, value, updated_at) VALUES ('user-settings', 'all', '${escapedSettingsJson}', '${updatedAt}');`;
+                await executeQuery(upsertQuery);
+                console.log("Settings initialized/updated successfully.");
+                updateLoadingStatus('User settings synced with local database.', 12);
+            } catch (dbError) {
+                console.error("Database error during settings initialization, falling back to default settings:", dbError.message);
+                updateLoadingStatus('Error accessing settings DB, default settings applied.', 10);
+                // Return default settings, but don't try to persist again if DB is failing
+                return { ...defaultSettings }; 
+            }
+            return currentSettings;
+        }
+
+        async function persistSettings(settingsObject) {
+            try {
+                const settingsJson = JSON.stringify(settingsObject);
+                const updatedAt = new Date().toISOString();
+                const escapedSettingsJson = settingsJson.replace(/'/g, "''");
+                const updateQuery = `UPDATE settings SET value = '${escapedSettingsJson}', updated_at = '${updatedAt}' WHERE id = 'user-settings' AND key = 'all';`;
+                await executeQuery(updateQuery);
+                console.log("Settings persisted successfully.");
+            } catch (dbError) {
+                console.error("Database error during settings persistence:", dbError.message);
+                // Optionally notify user of persistence failure
+                displayGlobalError("Failed to save settings to database. Changes may not persist.");
+                throw dbError; // Re-throw so caller knows
+            }
+        }
+    </script>
+
+    <!-- Main Application Logic: AsteroidTracker Class, main() -->
+    <script>
+        const MPC_DATA_EXPIRY_HOURS = 12;
+        const MAX_ASTEROIDS_TO_FETCH = 10000; 
+        const MAX_ASTEROIDS_RENDERED = 2000; 
+
+        class AsteroidTracker {
+            constructor(scene, camera, renderer) {
+                this.scene = scene;
+                this.camera = camera;
+                this.renderer = renderer;
+                this.timeScale = window.settings.timeScale || 1;
+                this.asteroids = [];
+                this.asteroidObjects = new Map(); // Using Map for easier management
+                this.orbitLines = new Map();
+                this.MAX_ASTEROIDS_TO_FETCH = MAX_ASTEROIDS_TO_FETCH;
+                this.MAX_ASTEROIDS_RENDERED = MAX_ASTEROIDS_RENDERED; // Used for display limit
+                this.neaTxtUrl = 'https://minorplanetcenter.net/Extended_Files/nea.txt';
+                this.unneoTxtUrl = 'https://minorplanetcenter.net/Extended_Files/unusual.txt';
+                this.world = null;
+
+                Object.getOwnPropertyNames(Object.getPrototypeOf(this))
+                    .filter(prop => typeof this[prop] === 'function' && prop !== 'constructor')
+                    .forEach(method => { this[method] = this[method].bind(this); });
+                
+                if (window.settings.simulatePhysics) this.initPhysics();
+            }
+
+            initPhysics() {
+                this.world = new CANNON.World();
+                this.world.gravity.set(0, 0, 0);
+                console.log("Physics engine initialized.");
+            }
+
+            // updateLoadingStatus is instance specific, calls global
+            updateLoadingStatus(message, percentage) { updateLoadingStatus(message, percentage); }
+
+            processFetchedAsteroids() {
+                this.updateLoadingStatus(`Processing ${this.asteroids.length} asteroids...`, 95);
+                // Actual object creation/update would happen in an animation loop or dedicated update function
+                // For now, this marks the end of data processing phase
+                console.log(`Asteroid data ready. ${this.asteroids.length} asteroids loaded into memory.`);
+                this.updateLoadingStatus('Asteroid data processed.', 98);
+            }
+            
+            parseMPCLine(line) {
+                if (line.length < 100) return null;
+                const designation = line.substring(0, 7).trim();
+                const H = parseFloat(line.substring(8, 13));
+                const albedo = 0.15; 
+                let diameter_km = (H !== null && !isNaN(H)) ? (1329 / Math.sqrt(albedo)) * Math.pow(10, -0.2 * H) : (0.05 + Math.random() * 0.05);
+                if (isNaN(diameter_km) || diameter_km <= 0.001) diameter_km = 0.05 + Math.random() * 0.05;
+
+                return {
+                    designation: designation, H: H, diameter: diameter_km, name: designation,
+                    rawLine: line 
+                };
+            }
+
+            async fetchFromMPCFile(url) {
+                const shortUrl = url.split('/').pop();
+                this.updateLoadingStatus(`Fetching ${shortUrl}...`, 25 + Math.random()*10); // Incremental %
+                try {
+                    const response = await axios.get(url, { timeout: 45000 }); // 45s timeout
+                    const lines = response.data.split('\n');
+                    const asteroids = [];
+                    lines.forEach(line => {
+                        if (line.trim() === '' || line.startsWith('#')) return;
+                        const parsed = this.parseMPCLine(line);
+                        if (parsed) asteroids.push(parsed);
+                    });
+                    return asteroids;
+                } catch (error) {
+                    console.error(`Error fetching/parsing ${shortUrl}:`, error.message);
+                    this.updateLoadingStatus(`Error with ${shortUrl}.`, this.currentLoadingPercentage || 30);
+                    throw error; // Re-throw to be handled by fetchFromMPCAndProcess
+                }
+            }
+            
+            createFallbackAsteroids() {
+                this.updateLoadingStatus('Creating fallback asteroid data...', 50);
+                this.asteroids = Array.from({length: 50}, (_, i) => ({ 
+                    designation: `Fallback${i+1}`, 
+                    name: `Fallback Asteroid ${i+1}`, 
+                    diameter: Math.random() * 2 + 0.1, H: 18 + Math.random()*5, 
+                    rawLine:"FALLBACK DATA",
+                    isFallback: true
+                }));
+                this.updateLoadingStatus('Fallback asteroid data created.', 60);
+            }
+
+            async fetchAsteroidData() {
+                this.updateLoadingStatus('Checking asteroid data cache...', 25);
+                let useCache = false;
+                try {
+                    const metaResponse = await executeQuery("SELECT value FROM meta WHERE id = 'mpcData';");
+                    if (metaResponse && metaResponse.result && metaResponse.result.length > 0 && metaResponse.result[0].value) {
+                        const lastFetch = JSON.parse(metaResponse.result[0].value);
+                        if ((new Date().getTime() - lastFetch) < (MPC_DATA_EXPIRY_HOURS * 60 * 60 * 1000)) {
+                            useCache = true;
+                        }
+                    }
+                } catch (dbError) {
+                    console.error("Error checking cache metadata:", dbError.message);
+                    this.updateLoadingStatus('DB metadata error, fetching fresh data.', 30);
+                }
+
+                if (useCache) {
+                    this.updateLoadingStatus('Loading cached asteroids from DB...', 70);
+                    try {
+                        const asteroidResponse = await executeQuery(`SELECT raw FROM asteroids ORDER BY H ASC LIMIT ${this.MAX_ASTEROIDS_TO_FETCH};`);
+                        if (asteroidResponse && asteroidResponse.result && asteroidResponse.result.length > 0) {
+                            this.asteroids = asteroidResponse.result.map(row => JSON.parse(row.raw));
+                            console.log(`Loaded ${this.asteroids.length} asteroids from local DB cache.`);
+                            this.processFetchedAsteroids();
+                            this.updateLoadingStatus('Cached asteroid data loaded.', 100);
+                            return;
+                        } else {
+                             this.updateLoadingStatus('Cache empty/invalid, fetching fresh data.', 30);
+                        }
+                    } catch (dbError) {
+                        console.error("Error loading asteroids from DB cache:", dbError.message);
+                        this.updateLoadingStatus('DB cache error, fetching fresh data.', 30);
+                    }
+                } else {
+                     this.updateLoadingStatus(MPC_DATA_EXPIRY_HOURS > 0 ? 'Cache stale or missing, fetching fresh data.' : 'Fetching MPC data as per config.', 30);
+                }
+                
+                await this.fetchFromMPCAndProcess();
+            }
+
+            async fetchFromMPCAndProcess() {
+                let allAsteroids = [];
+                let fetchSuccess = false;
+                try {
+                    const neaAsteroids = await this.fetchFromMPCFile(this.neaTxtUrl);
+                    this.updateLoadingStatus('Fetched NEAs, processing...', 45);
+                    const unneoAsteroids = await this.fetchFromMPCFile(this.unneoTxtUrl);
+                    this.updateLoadingStatus('Fetched Unusual Objects, processing...', 65);
+                    allAsteroids = [...neaAsteroids, ...unneoAsteroids];
+                    fetchSuccess = true;
+                } catch (fetchError) {
+                     console.error("A critical error occurred fetching MPC data:", fetchError.message);
+                     this.updateLoadingStatus(`MPC data fetch failed: ${fetchError.message}. Using fallback.`, 50);
+                }
+
+                if (!fetchSuccess || allAsteroids.length === 0) {
+                    console.warn("No asteroids fetched from MPC or fetch failed, using fallback data.");
+                    this.createFallbackAsteroids();
+                } else {
+                    const uniqueAsteroidsMap = new Map();
+                    allAsteroids.forEach(ast => { if (!uniqueAsteroidsMap.has(ast.designation)) uniqueAsteroidsMap.set(ast.designation, ast); });
+                    let uniqueAsteroids = Array.from(uniqueAsteroidsMap.values());
+                    uniqueAsteroids.sort((a, b) => (a.H || 99) - (b.H || 99)); // Sort by H (smaller H is brighter/bigger)
+                    this.asteroids = uniqueAsteroids.slice(0, this.MAX_ASTEROIDS_TO_FETCH);
+                }
+                
+                this.updateLoadingStatus(`Processing ${this.asteroids.length} asteroids...`, 70);
+
+                if (fetchSuccess && !this.asteroids.some(a => a.isFallback)) { // Only cache if successfully fetched non-fallback data
+                    try {
+                        this.updateLoadingStatus('Clearing old asteroid cache...', 75);
+                        await executeQuery("DELETE FROM asteroids;");
+                        this.updateLoadingStatus('Caching new asteroid data to DB...', 80);
+                        for (const asteroid of this.asteroids) {
+                            const rawJson = JSON.stringify(asteroid).replace(/'/g, "''");
+                            const designation = asteroid.designation.replace(/'/g, "''");
+                            const name = (asteroid.name || asteroid.designation).replace(/'/g, "''");
+                            const diameter = parseFloat(asteroid.diameter) || 0.0;
+                            const hazardous = asteroid.hazardous ? 1 : 0; // Assuming hazardous property might exist
+                            const approachDate = asteroid.approach_date || null; // Assuming approach_date might exist
+                            const insertQuery = `INSERT INTO asteroids (id, name, diameter, hazardous, approach_date, raw) VALUES ('${designation}', '${name}', ${diameter}, ${hazardous}, ${approachDate ? "'" + approachDate.replace(/'/g, "''") + "'" : 'NULL'}, '${rawJson}');`;
+                            await executeQuery(insertQuery);
+                        }
+                        const now = new Date().getTime();
+                        const metaUpdateQuery = `INSERT OR REPLACE INTO meta (id, type, value) VALUES ('mpcData', 'lastFetch', '${JSON.stringify(now)}');`;
+                        await executeQuery(metaUpdateQuery);
+                        this.updateLoadingStatus('All data cached.', 90);
+                    } catch (dbCacheError) {
+                        console.error("Error caching asteroid data to DB:", dbCacheError.message);
+                        this.updateLoadingStatus('Error caching data. Data for this session only.', 85);
+                    }
+                }
+                this.processFetchedAsteroids();
+                this.updateLoadingStatus('Asteroid data ready.', 100);
+            }
+
+            // Settings handlers
+            async setTimeScale(s) {
+                this.timeScale = Math.max(0.01, Math.min(s, 500));
+                window.settings.timeScale = this.timeScale;
+                console.log(`Timescale set to: ${this.timeScale}`);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist setTimeScale:", e.message); }
+            }
+
+            async filterObjects(filters) {
+                if (typeof filters.showNEOs !== 'undefined') window.settings.showNEOs = filters.showNEOs;
+                if (typeof filters.showMainBelt !== 'undefined') window.settings.showMainBelt = filters.showMainBelt;
+                if (typeof filters.showTNOs !== 'undefined') window.settings.showTNOs = filters.showTNOs;
+                console.log("Filters updated:", window.settings.showNEOs, window.settings.showMainBelt, window.settings.showTNOs);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist filterObjects:", e.message); }
+                // Scene update logic would go here
+            }
+
+            async toggleOrbits(show) {
+                window.settings.showOrbits = !!show;
+                console.log(`Show orbits: ${window.settings.showOrbits}`);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist toggleOrbits:", e.message); }
+            }
+
+            async toggleObjectScaling(scaleEnabled) {
+                window.settings.scaleObjects = !!scaleEnabled;
+                console.log(`Object scaling: ${window.settings.scaleObjects}`);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist toggleObjectScaling:", e.message); }
+            }
+
+            async setSimulatePhysics(sim) {
+                window.settings.simulatePhysics = !!sim;
+                 if (window.settings.simulatePhysics && !this.world) this.initPhysics();
+                 else if (!window.settings.simulatePhysics && this.world) this.world = null; // Simplified stop
+                console.log(`Simulate physics: ${window.settings.simulatePhysics}`);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist setSimulatePhysics:", e.message); }
+            }
+
+            async updateQualitySettings(newSettings) {
+                if (typeof newSettings.bloomStrength !== 'undefined') window.settings.bloomStrength = newSettings.bloomStrength;
+                if (typeof newSettings.ssaoEnabled !== 'undefined') window.settings.ssaoEnabled = newSettings.ssaoEnabled;
+                console.log(`Quality settings updated: Bloom ${window.settings.bloomStrength}, SSAO ${window.settings.ssaoEnabled}`);
+                try { await persistSettings(window.settings); } catch (e) { console.error("Failed to persist updateQualitySettings:", e.message); }
+                // Apply post-processing changes here
+            }
+        }
+
+        async function main() {
+            try {
+                updateLoadingStatus('Initializing application...', 0);
+                updateLoadingStatus('Initializing local database schema...', 5);
+                await initializeDatabaseSchema();
+                updateLoadingStatus('Database schema initialized.', 7);
+
+                window.settings = await initializeSettings(); // Handles status 8-12%
+
+                updateLoadingStatus('Setting up 3D scene...', 15);
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 50000); // Adjusted far clip for larger scale
+                camera.position.set(0, 15, 50); // Initial camera position (AU)
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+                document.getElementById('canvas-container').appendChild(renderer.domElement);
+                
+                const controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.minDistance = 0.1;
+                controls.maxDistance = 10000; // Max distance in AU
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.3); scene.add(ambientLight);
+                const sunLight = new THREE.PointLight(0xffffff, 2, 0, 0); // Brighter, no decay for sun
+                scene.add(sunLight);
+                // Sun mesh (optional visual)
+                const sunGeo = new THREE.SphereGeometry(0.5, 32, 32); // Radius in AU
+                const sunMat = new THREE.MeshBasicMaterial({color:0xffff00, emissive: 0xffff00, emissiveIntensity:1});
+                const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+                scene.add(sunMesh);
+
+                updateLoadingStatus('3D scene initialized.', 20);
+
+                window.app = new AsteroidTracker(scene, camera, renderer);
+                await window.app.fetchAsteroidData(); // Handles status 25%-100%
+
+                if (document.getElementById('react-root')) {
+                     ReactDOM.render(React.createElement(App), document.getElementById('react-root'));
+                } else {
+                    console.warn("react-root not found. Skipping React UI render.");
+                }
+                
+                let lastTime = 0;
+                const fpsCounterElement = document.getElementById('fps-counter');
+                const objectCountElement = document.getElementById('object-count');
+
+                function animate(time) {
+                    requestAnimationFrame(animate);
+                    const deltaTime = (time - lastTime) * 0.001; // seconds
+                    lastTime = time;
+
+                    controls.update();
+                    // Add asteroid animation logic here if `window.app.updateAsteroids(deltaTime)` exists
+                    renderer.render(scene, camera);
+                    
+                    if(fpsCounterElement && deltaTime > 0) {
+                        const fps = (1.0 / deltaTime).toFixed(0);
+                        fpsCounterElement.textContent = `FPS: ${fps}`;
+                    }
+                    if(objectCountElement && window.app) {
+                         // This count might be "rendered" objects, not total in memory
+                        objectCountElement.textContent = `Objects: ${window.app.asteroids.length} (loaded)`;
+                    }
+                }
+                animate(0);
+
+                window.addEventListener('resize', () => {
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                }, false);
+
+            } catch (error) {
+                console.error("Critical error during application startup:", error.message, error.stack);
+                displayGlobalError(`Application startup failed: ${error.message}. Please try refreshing.`);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', main);
+    </script>
+
+    <!-- React Components -->
+    <script type="text/babel">
+        // Main App component to manage state and pass appRef
+        function App() {
+            const [appInstance, setAppInstance] = React.useState(window.app);
+            const [settings, setSettingsState] = React.useState(window.settings || {});
+
+            React.useEffect(() => {
+                const handleAppReady = () => {
+                    if (window.app) {
+                        setAppInstance(window.app);
+                        setSettingsState({...window.settings}); // Initial settings sync
+                         // Listen for settings changes from AsteroidTracker methods
+                        const originalPersistSettings = window.app.constructor.prototype.persistSettings;
+                        window.app.persistSettings = async (newSettings) => {
+                            await originalPersistSettings.call(window.app, newSettings); // Call original
+                            setSettingsState({...window.settings}); // Update React state
+                        };
+                    }
+                };
+
+                if (window.app) {
+                    handleAppReady();
+                } else {
+                    // Fallback if app isn't ready immediately (should be rare with DOMContentLoaded)
+                    const intervalId = setInterval(() => {
+                        if (window.app) {
+                            handleAppReady();
+                            clearInterval(intervalId);
+                        }
+                    }, 100);
+                    return () => clearInterval(intervalId);
+                }
+                 // Cleanup if persistSettings was monkey-patched (not strictly necessary here)
+            }, []);
+            
+            if (!appInstance) {
+                return <div className="control-panel">Initializing UI...</div>;
+            }
+
+            return (
+                <React.Fragment>
+                    <ControlPanel app={appInstance} settings={settings} setSettings={setSettingsState} />
+                    <InfoPanel app={appInstance} settings={settings} />
+                </React.Fragment>
+            );
+        }
+
+        function ControlPanel({ app, settings, setSettings }) {
+            const handleSettingChange = (key, value, isToggle = false) => {
+                const newSettings = { ...settings, [key]: isToggle ? !settings[key] : value };
+                setSettings(newSettings); // Optimistic UI update
+
+                switch(key) {
+                    case 'timeScale': app.setTimeScale(parseFloat(value)); break;
+                    case 'showNEOs': case 'showMainBelt': case 'showTNOs':
+                        app.filterObjects({ 
+                            showNEOs: key === 'showNEOs' ? value : newSettings.showNEOs,
+                            showMainBelt: key === 'showMainBelt' ? value : newSettings.showMainBelt,
+                            showTNOs: key === 'showTNOs' ? value : newSettings.showTNOs,
+                        });
+                        break;
+                    case 'showOrbits': app.toggleOrbits(value); break;
+                    case 'scaleObjects': app.toggleObjectScaling(value); break;
+                    case 'simulatePhysics': app.setSimulatePhysics(value); break;
+                    // Add cases for quality settings if needed
+                    default: console.warn("Unhandled setting change in ControlPanel:", key);
+                }
+            };
+            
+            return (
+                <div className="control-panel">
+                    <h4><i className="fas fa-cogs"></i> Controls</h4>
+                    <div>
+                        <label htmlFor="timeScaleRange">Time Scale: {settings.timeScale?.toFixed(2) || 1}x</label>
+                        <input id="timeScaleRange" type="range" min="0.1" max="100" step="0.1" 
+                               value={settings.timeScale || 1} 
+                               onChange={(e) => handleSettingChange('timeScale', parseFloat(e.target.value))} />
+                    </div>
+                    <div><strong>Filters:</strong></div>
+                    <div><label><input type="checkbox" checked={settings.showNEOs || false} onChange={(e) => handleSettingChange('showNEOs', e.target.checked)} /> Show NEOs</label></div>
+                    <div><label><input type="checkbox" checked={settings.showMainBelt || false} onChange={(e) => handleSettingChange('showMainBelt', e.target.checked)} /> Show Main Belt</label></div>
+                    <div><label><input type="checkbox" checked={settings.showTNOs || false} onChange={(e) => handleSettingChange('showTNOs', e.target.checked)} /> Show TNOs</label></div>
+                    <div><strong>Display:</strong></div>
+                    <div><label><input type="checkbox" checked={settings.showOrbits || false} onChange={(e) => handleSettingChange('showOrbits', e.target.checked)} /> Show Orbits</label></div>
+                    <div><label><input type="checkbox" checked={settings.scaleObjects || false} onChange={(e) => handleSettingChange('scaleObjects', e.target.checked)} /> Scale Objects by Size</label></div>
+                    <div><strong>Simulation:</strong></div>
+                    <div><label><input type="checkbox" checked={settings.simulatePhysics || false} onChange={(e) => handleSettingChange('simulatePhysics', e.target.checked)} /> Simulate Physics (Basic)</label></div>
+                </div>
+            );
+        }
+
+        function InfoPanel({ app, settings }) {
+            // Placeholder for displaying selected object info, date, etc.
+            return (
+                <div className="info-panel">
+                    <h4><i className="fas fa-info-circle"></i> Info Panel</h4>
+                    <p>Date: {new Date().toLocaleDateString()}</p>
+                    <p>Loaded Asteroids: {app.asteroids ? app.asteroids.length : 0}</p>
+                    <p>Max Rendered: {app.MAX_ASTEROIDS_RENDERED}</p>
+                    <p>Selected: N/A</p>
+                </div>
+            );
+        }
+        // ReactDOM.render is called from main() after app is initialized.
+    </script>
+</body>
+</html>
