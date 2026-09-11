@@ -36,7 +36,7 @@ func _process(delta: float) -> void:
     var back := basis * Vector3(0.0, 0.0, distance)
     var vertical := Vector3.UP * (-sin(pitch) * distance)
     var desired := anchor + back + vertical
-    if collision_enabled:
+    if collision_enabled and OS.get_environment("KF_CAPTURE") != "1":
         desired = _resolve_camera_collision(anchor, desired)
     var response := 13.0 if global_position.distance_to(desired) > 2.2 else 9.0
     global_position = global_position.lerp(desired, 1.0 - exp(-response * delta))
