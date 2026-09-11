@@ -1,5 +1,6 @@
 extends Node3D
 
+const GeomUtil = preload("res://scripts/geom.gd")
 const PlayerScene = preload("res://scripts/player.gd")
 const EnemyScene = preload("res://scripts/enemy.gd")
 const ExcavatorScene = preload("res://scripts/excavator.gd")
@@ -8,11 +9,11 @@ const CameraRigScene = preload("res://scripts/camera_rig.gd")
 const HudScene = preload("res://scripts/mobile_hud.gd")
 const CaptureRunnerScene = preload("res://scripts/visual_capture.gd")
 
-var hud: MobileHud
-var camera_rig: CameraRig
-var player: FoundryPlayer
-var excavator: Excavator
-var structure: StructuralFrame
+var hud
+var camera_rig
+var player
+var excavator
+var structure
 
 func _ready() -> void:
     _build_environment()
@@ -45,7 +46,7 @@ func _build_environment() -> void:
     add_child(sun)
 
 func _build_yard() -> void:
-    Geom.static_box(
+    GeomUtil.static_box(
         self,
         "Ground",
         Vector3(0.0, -0.50, 0.0),
@@ -53,7 +54,7 @@ func _build_yard() -> void:
         Color(0.105, 0.115, 0.115)
     )
     for x in [-26.0, 26.0]:
-        Geom.static_box(
+        GeomUtil.static_box(
             self,
             "Wall",
             Vector3(x, 4.0, 0.0),
@@ -61,7 +62,7 @@ func _build_yard() -> void:
             Color(0.19, 0.20, 0.19)
         )
     for z in [-28.0, 28.0]:
-        Geom.static_box(
+        GeomUtil.static_box(
             self,
             "Wall",
             Vector3(0.0, 4.0, z),
@@ -71,7 +72,7 @@ func _build_yard() -> void:
     for i in 8:
         var x := -18.0 + float(i % 4) * 6.0
         var z := -19.0 + float(i / 4) * 7.0
-        Geom.static_box(
+        GeomUtil.static_box(
             self,
             "Cargo",
             Vector3(x, 1.1, z),
@@ -97,7 +98,7 @@ func _build_gameplay() -> void:
     excavator.configure(hud, camera_rig)
     excavator.player_entered.connect(_on_machine_entered)
     excavator.player_exited.connect(_on_machine_exited)
-    var operator := _spawn_enemy(Vector3(4.0, 1.0, -3.0))
+    var operator = _spawn_enemy(Vector3(4.0, 1.0, -3.0))
     excavator.set_enemy_driver(operator)
     _spawn_enemy(Vector3(-3.0, 1.0, 5.0))
     _spawn_enemy(Vector3(1.0, 1.0, 10.0))
@@ -106,23 +107,22 @@ func _build_gameplay() -> void:
     structure.position = Vector3(11.0, 0.0, -14.0)
     add_child(structure)
 
-func _spawn_enemy(pos: Vector3) -> FoundryEnemy:
-    var enemy := EnemyScene.new()
+func _spawn_enemy(pos: Vector3):
+    var enemy = EnemyScene.new()
     enemy.position = pos
     add_child(enemy)
     enemy.set_target(player)
     return enemy
 
-func _on_player_use(user: FoundryPlayer) -> void:
-    if excavator.try_enter(user):
-        return
+func _on_player_use(user) -> void:
+    excavator.try_enter(user)
 
-func _on_machine_entered(machine: Excavator) -> void:
+func _on_machine_entered(machine) -> void:
     camera_rig.set_target(machine)
     camera_rig.distance = 12.5
     camera_rig.height = 4.7
 
-func _on_machine_exited(_machine: Excavator) -> void:
+func _on_machine_exited(_machine) -> void:
     camera_rig.set_target(player)
     camera_rig.distance = 9.4
     camera_rig.height = 3.1
