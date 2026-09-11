@@ -7,6 +7,7 @@ const StructureScene = preload("res://scripts/structure.gd")
 const CameraRigScene = preload("res://scripts/camera_rig.gd")
 const HudScene = preload("res://scripts/mobile_hud.gd")
 const YardScene = preload("res://scripts/industrial_yard.gd")
+const HazardFieldScene = preload("res://scripts/hazard_field.gd")
 const CaptureRunnerScene = preload("res://scripts/visual_capture.gd")
 
 var hud
@@ -15,6 +16,7 @@ var player
 var excavator
 var structure
 var yard
+var hazards
 
 func _ready() -> void:
     _build_environment()
@@ -51,6 +53,8 @@ func _build_environment() -> void:
 func _build_yard() -> void:
     yard = YardScene.new()
     add_child(yard)
+    hazards = HazardFieldScene.new()
+    add_child(hazards)
 
 func _build_gameplay() -> void:
     hud = HudScene.new()
@@ -60,26 +64,27 @@ func _build_gameplay() -> void:
     add_child(camera_rig)
 
     player = PlayerScene.new()
-    player.position = Vector3(-10.0, 1.1, 13.0)
+    player.position = Vector3(-10.0, 0.03, 13.0)
     add_child(player)
     player.configure(hud, camera_rig)
     player.request_machine_entry.connect(_on_player_use)
     camera_rig.set_target(player)
 
     excavator = ExcavatorScene.new()
-    excavator.position = Vector3(4.0, 0.8, -3.0)
+    excavator.position = Vector3(4.0, -0.17, -3.0)
     excavator.rotation.y = 0.42
     add_child(excavator)
     excavator.configure(hud, camera_rig)
     excavator.player_entered.connect(_on_machine_entered)
     excavator.player_exited.connect(_on_machine_exited)
 
-    var operator = _spawn_enemy(Vector3(4.0, 1.0, -3.0))
+    var operator = _spawn_enemy(Vector3(4.0, 0.03, -3.0))
     excavator.set_enemy_driver(operator)
-    _spawn_enemy(Vector3(-3.0, 1.0, 5.0))
-    _spawn_enemy(Vector3(1.0, 1.0, 10.0))
-    _spawn_enemy(Vector3(8.0, 1.0, 7.0))
-    _spawn_enemy(Vector3(-11.5, 1.0, -1.0))
+    _spawn_enemy(Vector3(-3.0, 0.03, 5.0))
+    _spawn_enemy(Vector3(1.0, 0.03, 10.0))
+    _spawn_enemy(Vector3(8.0, 0.03, 7.0))
+    _spawn_enemy(Vector3(-11.5, 0.03, -1.0))
+    _spawn_enemy(Vector3(14.0, 0.03, 11.5))
 
     structure = StructureScene.new()
     structure.position = Vector3(11.0, 0.0, -14.0)
