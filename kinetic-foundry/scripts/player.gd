@@ -314,3 +314,18 @@ func _animate(delta: float) -> void:
     var attack_amount := attack_anim / 0.28 if attack_anim > 0.0 else 0.0
     var hit_amount := hit_anim / 0.28 if hit_anim > 0.0 else 0.0
     _rig.animate(delta, planar, speed, attack_amount, hit_amount, health <= 0.0)
+
+func _update_hud() -> void:
+    if hud == null:
+        return
+    if hud.has_method("set_health"):
+        hud.set_health(health / max_health)
+    if hud.has_method("set_target"):
+        hud.set_target(engaged_target)
+    if held_target != null and is_instance_valid(held_target):
+        if held_target.is_in_group("enemy"):
+            hud.set_context("GRAPPLE // HIT TO THROW")
+        elif held_target.is_in_group("physics_prop"):
+            hud.set_context("LOAD HELD // HIT TO LAUNCH")
+    elif traversal_lock <= 0.0 and engage_timer <= 0.0:
+        hud.set_context("POWER // COMBAT // MACHINES")
