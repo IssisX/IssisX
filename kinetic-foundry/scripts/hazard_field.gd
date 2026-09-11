@@ -1,6 +1,7 @@
 extends Node3D
 
 const PressureVentScript = preload("res://scripts/pressure_vent.gd")
+const GantryLoadScript = preload("res://scripts/gantry_load.gd")
 const GeomUtil = preload("res://scripts/geom.gd")
 
 var rotors: Array[Node3D] = []
@@ -9,6 +10,7 @@ func _ready() -> void:
     _spawn_pressure_vent(Vector3(-15.3, 0.0, 5.5), -0.34, 0.0)
     _spawn_pressure_vent(Vector3(7.8, 0.0, -10.8), 2.45, 2.1)
     _build_exhaust_fans()
+    _build_gantry_load()
 
 func _spawn_pressure_vent(pos: Vector3, yaw: float, offset: float) -> void:
     var vent := PressureVentScript.new()
@@ -16,6 +18,11 @@ func _spawn_pressure_vent(pos: Vector3, yaw: float, offset: float) -> void:
     vent.rotation.y = yaw
     add_child(vent)
     vent.configure(offset)
+
+func _build_gantry_load() -> void:
+    var load := GantryLoadScript.new()
+    load.position = Vector3(0.0, 4.72, -5.0)
+    add_child(load)
 
 func _build_exhaust_fans() -> void:
     for i in 3:
