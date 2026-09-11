@@ -2,6 +2,7 @@ extends Node3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
 const ImpactFx = preload("res://scripts/impact_fx.gd")
+const GatePanelScript = preload("res://scripts/gate_panel.gd")
 
 var panel_health := [120.0, 120.0]
 var panels: Array[StaticBody3D] = []
@@ -19,6 +20,8 @@ func _build_gate() -> void:
         panel.collision_layer = 8
         panel.collision_mask = 1 | 2 | 4
         panel.set_meta("gate_index", index)
+        panel.set_script(GatePanelScript)
+        panel.set("gate_owner", self)
         add_child(panel)
         panels.append(panel)
         var frame := GeomUtil.box_mesh(Vector3(4.0, 4.0, 0.24), Color(0.17, 0.18, 0.165), 0.88, 0.26)
@@ -55,15 +58,19 @@ func machine_hit(amount: float, direction: Vector3) -> void:
         if d < best:
             best = d
             closest = i
-    if closest < 0:
+    if closest >= 0:
+        damage_panel(closest, amount, direction)
+
+func damage_panel(index: int, amount: float, direction: Vector3) -> void:
+    if breached or index < 0 or index >= panels.size() or not is_instance_valid(panels[index]):
         return
-    panel_health[closest] = maxf(0.0, panel_health[closest] - amount)
-    var panel := panels[closest]
+    panel_health[index] = maxf(0.0, panel_health[index] - amount)
+    var panel := panels[index]
     panel.rotation.y += direction.x * amount * 0.0018
     panel.rotation.x -= direction.y * amount * 0.0009
     ImpactFx.spawn(get_parent(), panel.global_position + Vector3.UP * 0.6, direction, Color(0.92, 0.55, 0.10), clampf(amount / 20.0, 1.0, 3.8), 10)
-    if panel_health[closest] <= 0.0:
-        _break_panel(closest, direction)
+    if panel_health[index] <= 0.0:
+        _break_panel(index, direction)
     breached = panel_health[0] <= 0.0 or panel_health[1] <= 0.0
 
 func _break_panel(index: int, direction: Vector3) -> void:
