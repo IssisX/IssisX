@@ -11,11 +11,14 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 env:
   GODOT_VERSION: "4.3"
   PROJECT_PATH: "kinetic-foundry"
   EXPORT_NAME: "KineticFoundry-debug"
+  ANDROID_HOME: "/usr/lib/android-sdk"
+  ANDROID_SDK_ROOT: "/usr/lib/android-sdk"
 
 jobs:
   android-debug:
@@ -46,31 +49,53 @@ jobs:
           godot --version
           test -d "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
 
-      - name: Configure Android paths
+      - name: Install Godot 4.3 Android SDK requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest"
+          test -x "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          test -d "$ANDROID_HOME/platforms/android-34"
+
+      - name: Configure Android paths and debug signing
         shell: bash
         run: |
           set -euo pipefail
           SETTINGS="$HOME/.config/godot/editor_settings-4.3.tres"
           mkdir -p "$(dirname "$SETTINGS")"
-          touch "$SETTINGS"
-          JAVA_PATH="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
-          if [ -d /opt/android-sdk-linux ]; then
-            SDK_PATH=/opt/android-sdk-linux
-          elif [ -d /opt/android-sdk ]; then
-            SDK_PATH=/opt/android-sdk
-          elif [ -d /root/.android ]; then
-            SDK_PATH=/root/.android
-          else
-            SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ ! -f "$SETTINGS" ]; then
+            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$SETTINGS"
           fi
-          if ! grep -q '^export/android/java_sdk_path' "$SETTINGS"; then
-            printf '\nexport/android/java_sdk_path = "%s"\n' "$JAVA_PATH" >> "$SETTINGS"
-          fi
-          if [ -n "$SDK_PATH" ] && ! grep -q '^export/android/android_sdk_path' "$SETTINGS"; then
-            printf 'export/android/android_sdk_path = "%s"\n' "$SDK_PATH" >> "$SETTINGS"
-          fi
-          echo "JAVA_PATH=$JAVA_PATH"
-          echo "SDK_PATH=$SDK_PATH"
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path.home() / ".config/godot/editor_settings-4.3.tres"
+          text = path.read_text()
+          desired = {
+              "export/android/java_sdk_path": "/usr/lib/jvm/java-17-openjdk-amd64",
+              "export/android/android_sdk_path": "/usr/lib/android-sdk",
+              "export/android/debug_keystore": "/root/debug.keystore",
+              "export/android/debug_keystore_user": "androiddebugkey",
+              "export/android/debug_keystore_pass": "android",
+          }
+          lines = text.splitlines()
+          for key, value in desired.items():
+              prefix = key + " = "
+              replacement = f'{key} = "{value}"'
+              for i, line in enumerate(lines):
+                  if line.startswith(prefix):
+                      lines[i] = replacement
+                      break
+              else:
+                  lines.append(replacement)
+          path.write_text("\n".join(lines) + "\n")
+          print(path.read_text())
+          PY
+          test -f /root/debug.keystore
 
       - name: Import and validate Godot project
         shell: bash
@@ -81,6 +106,7 @@ jobs:
             --editor --quit
 
       - name: Export debug APK
+        id: export
         shell: bash
         run: |
           set -euo pipefail
@@ -88,8 +114,28 @@ jobs:
           godot --headless --verbose \
             --path "$PROJECT_PATH" \
             --export-debug "Android" \
-            "build/android/${EXPORT_NAME}.apk"
+            "build/android/${EXPORT_NAME}.apk" \
+            2>&1 | tee "$PROJECT_PATH/build/android/export.log"
           test -s "$PROJECT_PATH/build/android/${EXPORT_NAME}.apk"
+
+      - name: Report export failure with exact Godot output
+        if: failure() && steps.export.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const p = 'kinetic-foundry/build/android/export.log';
+            let body = 'No export log was produced.';
+            if (fs.existsSync(p)) {
+              const lines = fs.readFileSync(p, 'utf8').split('\n');
+              body = lines.slice(-140).join('\n');
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Kinetic Foundry CI] Android export failure run ${context.runNumber}`,
+              body: `Commit: ${context.sha}\n\n\`\`\`text\n${body}\n\`\`\``
+            });
 
       - name: Verify APK archive
         shell: bash
