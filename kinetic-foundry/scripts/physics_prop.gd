@@ -6,8 +6,10 @@ const GeomUtil = preload("res://scripts/geom.gd")
 var health := 80.0
 var destroyed := false
 var impact_scale := 1.0
+var held := false
 
 func _ready() -> void:
+    add_to_group("physics_prop")
     collision_layer = 8
     collision_mask = 1 | 2 | 4 | 8
     sleeping = true
@@ -46,10 +48,20 @@ func configure_barrel(
         ring.position.y = y
         add_child(ring)
 
+func set_held(value: bool) -> void:
+    held = value
+    sleeping = false
+    freeze = value
+    if value:
+        linear_velocity = Vector3.ZERO
+        angular_velocity = Vector3.ZERO
+
 func machine_hit(amount: float, direction: Vector3) -> void:
     _receive_impact(amount * 1.35, direction, 14.0)
 
 func take_hit(force: Vector3, damage: float) -> void:
+    if held:
+        set_held(false)
     var dir := force
     if dir.length_squared() < 0.001:
         dir = Vector3.UP
