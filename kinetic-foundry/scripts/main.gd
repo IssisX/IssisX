@@ -18,7 +18,8 @@ func _ready() -> void:
     _build_environment()
     _build_yard()
     _build_gameplay()
-    if "--capture" in OS.get_cmdline_user_args():
+    if OS.get_environment("KF_CAPTURE") == "1":
+        print("CAPTURE_STAGE activation")
         var capture_runner := CaptureRunnerScene.new()
         add_child(capture_runner)
         capture_runner.begin(self)
