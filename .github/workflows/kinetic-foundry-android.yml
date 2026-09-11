@@ -4,8 +4,7 @@ on:
   push:
     branches: [kinetic-foundry]
     paths:
-      - "kinetic-foundry/**"
-      - ".github/workflows/kinetic-foundry-android.yml"
+      - "kinetic-foundry/.milestone-build"
   workflow_dispatch:
 
 permissions:
