@@ -12,6 +12,18 @@ static func material(
     mat.metallic = metallic
     return mat
 
+static func emissive_material(
+        color: Color,
+        emission_energy: float = 2.5,
+        roughness: float = 0.42,
+        metallic: float = 0.0
+) -> StandardMaterial3D:
+    var mat := material(color, roughness, metallic)
+    mat.emission_enabled = true
+    mat.emission = color
+    mat.emission_energy_multiplier = emission_energy
+    return mat
+
 static func box_mesh(
         size: Vector3,
         color: Color,
@@ -27,6 +39,23 @@ static func box_mesh(
         roughness,
         metallic
     )
+    return node
+
+static func cylinder_mesh(
+        radius: float,
+        height: float,
+        color: Color,
+        roughness: float = 0.78,
+        metallic: float = 0.0
+) -> MeshInstance3D:
+    var mesh := CylinderMesh.new()
+    mesh.top_radius = radius
+    mesh.bottom_radius = radius
+    mesh.height = height
+    mesh.radial_segments = 16
+    var node := MeshInstance3D.new()
+    node.mesh = mesh
+    node.material_override = material(color, roughness, metallic)
     return node
 
 static func sphere_mesh(
@@ -60,6 +89,19 @@ static func add_box_collision(
 ) -> CollisionShape3D:
     var shape := BoxShape3D.new()
     shape.size = size
+    var node := CollisionShape3D.new()
+    node.shape = shape
+    body.add_child(node)
+    return node
+
+static func add_cylinder_collision(
+        body: CollisionObject3D,
+        radius: float,
+        height: float
+) -> CollisionShape3D:
+    var shape := CylinderShape3D.new()
+    shape.radius = radius
+    shape.height = height
     var node := CollisionShape3D.new()
     node.shape = shape
     body.add_child(node)
