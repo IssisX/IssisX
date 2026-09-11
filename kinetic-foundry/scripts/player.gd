@@ -71,13 +71,13 @@ func _physics_process(delta: float) -> void:
     engage_timer = maxf(0.0, engage_timer - delta)
     if engage_timer <= 0.0 and held_target == null:
         engaged_target = null
-    var axis := hud.move_axis + _keyboard_axis()
+    var axis: Vector2 = hud.move_axis + _keyboard_axis()
     if axis.length() > 1.0:
         axis = axis.normalized()
-    var forward := camera_rig.flat_forward()
-    var right := camera_rig.flat_right()
-    var desired := right * axis.x + forward * -axis.y
-    var target_speed := speed
+    var forward: Vector3 = camera_rig.flat_forward()
+    var right: Vector3 = camera_rig.flat_right()
+    var desired: Vector3 = right * axis.x + forward * -axis.y
+    var target_speed: float = speed
     if axis.length() > 0.94:
         target_speed = sprint_speed
     if desired.length_squared() > 0.001:
@@ -102,7 +102,7 @@ func _physics_process(delta: float) -> void:
         velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
     if not is_on_floor():
         velocity.y -= 26.0 * delta
-    var look := hud.consume_look()
+    var look: Vector2 = hud.consume_look()
     camera_rig.apply_look(look)
     if hud.consume_attack() or _keyboard_attack():
         _attack()
@@ -141,7 +141,7 @@ func _attack() -> void:
         return
     attack_cooldown = 0.34
     if held_target != null and is_instance_valid(held_target):
-        var throw_dir := -global_basis.z
+        var throw_dir: Vector3 = -global_basis.z
         held_target.set_held(false)
         held_target.take_hit(
             throw_dir * 15.0 + Vector3.UP * 5.8,
@@ -154,7 +154,7 @@ func _attack() -> void:
         return
     engaged_target = target
     engage_timer = 1.0
-    var dir := target.global_position - global_position
+    var dir: Vector3 = target.global_position - global_position
     dir.y = 0.0
     if dir.length_squared() < 0.01:
         dir = -global_basis.z
@@ -165,7 +165,7 @@ func _attack() -> void:
 
 func _grab_or_throw() -> void:
     if held_target != null and is_instance_valid(held_target):
-        var dir := -global_basis.z
+        var dir: Vector3 = -global_basis.z
         held_target.set_held(false)
         held_target.take_hit(
             dir * 12.5 + Vector3.UP * 4.7,
@@ -182,7 +182,7 @@ func _grab_or_throw() -> void:
     target.set_held(true)
 
 func _update_held_target() -> void:
-    var hold_pos := (
+    var hold_pos: Vector3 = (
         global_position
         - global_basis.z * 1.05
         + Vector3.UP * 1.15
@@ -195,24 +195,24 @@ func _update_held_target() -> void:
 
 func _find_target(radius: float):
     if engaged_target != null and is_instance_valid(engaged_target):
-        var d := global_position.distance_to(engaged_target.global_position)
+        var d: float = global_position.distance_to(engaged_target.global_position)
         if d <= radius * 1.25:
             return engaged_target
     var best = null
-    var best_score := -9999.0
-    var forward := -global_basis.z
+    var best_score: float = -9999.0
+    var forward: Vector3 = -global_basis.z
     for enemy in get_tree().get_nodes_in_group("enemy"):
         if not enemy.visible:
             continue
         if enemy.dead:
             continue
-        var offset := enemy.global_position - global_position
-        var dist := offset.length()
+        var offset: Vector3 = enemy.global_position - global_position
+        var dist: float = offset.length()
         if dist > radius:
             continue
-        var dir := offset.normalized()
-        var facing := forward.dot(dir)
-        var score := facing * 2.0 - dist * 0.55
+        var dir: Vector3 = offset.normalized()
+        var facing: float = forward.dot(dir)
+        var score: float = facing * 2.0 - dist * 0.55
         if score > best_score:
             best_score = score
             best = enemy
