@@ -2,11 +2,13 @@ class_name PhysicsProp
 extends RigidBody3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
+const ImpactFx = preload("res://scripts/impact_fx.gd")
 
 var health := 80.0
 var destroyed := false
 var impact_scale := 1.0
 var held := false
+var impact_color := Color(0.72, 0.45, 0.12)
 
 func _ready() -> void:
     add_to_group("physics_prop")
@@ -23,6 +25,7 @@ func configure_box(
 ) -> void:
     mass = mass_value
     health = hp
+    impact_color = color.lightened(0.32)
     add_child(GeomUtil.box_mesh(size, color, 0.86, 0.16))
     GeomUtil.add_box_collision(self, size)
 
@@ -35,6 +38,7 @@ func configure_barrel(
 ) -> void:
     mass = mass_value
     health = hp
+    impact_color = color.lightened(0.38)
     add_child(GeomUtil.cylinder_mesh(radius, height, color, 0.76, 0.22))
     GeomUtil.add_cylinder_collision(self, radius, height)
     for y in [-height * 0.32, height * 0.32]:
@@ -82,8 +86,24 @@ func _receive_impact(
     apply_torque_impulse(
         Vector3(direction.z, 0.35, -direction.x) * damage * mass * 0.025
     )
+    ImpactFx.spawn(
+        get_parent(),
+        global_position + Vector3.UP * 0.45,
+        direction,
+        impact_color,
+        clampf(damage / 20.0, 0.7, 3.5),
+        7
+    )
     if health <= 0.0:
         destroyed = true
         linear_damp = 0.18
         angular_damp = 0.12
         apply_central_impulse(direction.normalized() * mass * 4.5)
+        ImpactFx.spawn(
+            get_parent(),
+            global_position + Vector3.UP * 0.35,
+            direction,
+            impact_color,
+            3.4,
+            13
+        )
