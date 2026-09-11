@@ -51,11 +51,17 @@ jobs:
           verbose: true
           use_preset_export_path: true
 
-      - name: Verify APK
+      - name: Verify and normalize APK
         shell: bash
         run: |
           set -euo pipefail
-          APK="kinetic-foundry/build/android/KineticFoundry-debug.apk"
+          OUT_DIR="kinetic-foundry/build/android"
+          APK="$OUT_DIR/KineticFoundry-debug.apk"
+          FOUND_APK="$(find "$OUT_DIR" -type f -name '*.apk' -print -quit)"
+          test -n "$FOUND_APK"
+          if [ "$FOUND_APK" != "$APK" ]; then
+            cp "$FOUND_APK" "$APK"
+          fi
           test -s "$APK"
           test "$(stat -c%s "$APK")" -gt 1000000
           unzip -t "$APK"
