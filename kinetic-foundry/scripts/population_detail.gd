@@ -8,6 +8,11 @@ func _ready() -> void:
 func _decorate() -> void:
     await get_tree().process_frame
     await get_tree().process_frame
+    for player in get_tree().get_nodes_in_group("player"):
+        if is_instance_valid(player):
+            var player_rig = player.get("_rig")
+            if player_rig != null:
+                _decorate_player(player_rig)
     for enemy in get_tree().get_nodes_in_group("enemy"):
         if not is_instance_valid(enemy):
             continue
@@ -16,6 +21,31 @@ func _decorate() -> void:
             continue
         var variant := int(enemy.get_instance_id()) % 3
         _decorate_rig(rig, variant)
+
+func _decorate_player(rig) -> void:
+    if rig.has_meta("player_detail"):
+        return
+    rig.set_meta("player_detail", true)
+    var torso = rig.get("torso")
+    var arm_l = rig.get("arm_l")
+    var arm_r = rig.get("arm_r")
+    if torso != null:
+        var back := GeomUtil.box_mesh(Vector3(0.56, 0.58, 0.20), Color(0.09, 0.11, 0.105), 0.88, 0.12)
+        back.position = Vector3(0.0, 0.34, 0.32)
+        torso.add_child(back)
+        for side in [-1.0, 1.0]:
+            var buckle := GeomUtil.box_mesh(Vector3(0.10, 0.10, 0.06), Color(0.58, 0.39, 0.08), 0.72, 0.16)
+            buckle.position = Vector3(side * 0.24, 0.44, -0.31)
+            torso.add_child(buckle)
+        var belt_case := GeomUtil.box_mesh(Vector3(0.30, 0.20, 0.15), Color(0.11, 0.09, 0.06), 0.92, 0.04)
+        belt_case.position = Vector3(0.31, -0.08, 0.0)
+        torso.add_child(belt_case)
+    for arm in [arm_l, arm_r]:
+        if arm == null:
+            continue
+        var brace := GeomUtil.box_mesh(Vector3(0.20, 0.26, 0.19), Color(0.19, 0.20, 0.18), 0.84, 0.24)
+        brace.position = Vector3(0.0, -0.18, -0.02)
+        arm.add_child(brace)
 
 func _decorate_rig(rig, variant: int) -> void:
     if rig.has_meta("population_detail"):
