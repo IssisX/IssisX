@@ -15,6 +15,7 @@ jobs:
   capture:
     if: ${{ !contains(github.event.head_commit.message, '[skip capture]') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     name: Render deterministic screenshots
 
     env:
@@ -22,6 +23,7 @@ jobs:
       GODOT_BIN: /tmp/Godot_v4.3-stable_linux.x86_64
       CAPTURE_DIR: ${{ github.workspace }}/kinetic-foundry/captures/latest
       LIBGL_ALWAYS_SOFTWARE: "1"
+      KF_CAPTURE: "1"
 
     steps:
       - name: Checkout source
@@ -53,9 +55,19 @@ jobs:
           set -euo pipefail
           rm -rf "$CAPTURE_DIR"
           mkdir -p "$CAPTURE_DIR"
-          xvfb-run -a -s "-screen 0 1920x1080x24" \
-            "$GODOT_BIN" --path kinetic-foundry --audio-driver Dummy -- --capture \
+          set +e
+          timeout --signal=TERM 45s xvfb-run -a -s "-screen 0 1920x1080x24" \
+            "$GODOT_BIN" --path kinetic-foundry --audio-driver Dummy \
             2>&1 | tee /tmp/kinetic-capture.log
+          status=${PIPESTATUS[0]}
+          set -e
+          cat /tmp/kinetic-capture.log
+          if [ "$status" -eq 124 ]; then
+            echo "CAPTURE_TIMEOUT"
+            exit 124
+          fi
+          test "$status" -eq 0
+          grep -q 'CAPTURE_STAGE activation' /tmp/kinetic-capture.log
           grep -q 'CAPTURE_SUITE_OK' /tmp/kinetic-capture.log
 
       - name: Verify capture set
