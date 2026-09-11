@@ -7,6 +7,9 @@ config/name="Kinetic Foundry"
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 
+[autoload]
+WorldExtension="*res://scripts/world_extension.gd"
+
 [display/window]
 size/viewport_width=1920
 size/viewport_height=1080
