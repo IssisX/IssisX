@@ -145,21 +145,9 @@ func _physics_process(delta: float) -> void:
         target_speed = sprint_speed
     if desired.length_squared() > 0.001:
         desired = desired.normalized()
-        velocity.x = move_toward(
-            velocity.x,
-            desired.x * target_speed,
-            32.0 * delta
-        )
-        velocity.z = move_toward(
-            velocity.z,
-            desired.z * target_speed,
-            32.0 * delta
-        )
-        rotation.y = lerp_angle(
-            rotation.y,
-            atan2(-desired.x, -desired.z),
-            0.22
-        )
+        velocity.x = move_toward(velocity.x, desired.x * target_speed, 32.0 * delta)
+        velocity.z = move_toward(velocity.z, desired.z * target_speed, 32.0 * delta)
+        rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), 0.22)
     else:
         velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
         velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
@@ -206,55 +194,96 @@ func _attack() -> void:
     if held_target != null and is_instance_valid(held_target):
         var throw_dir: Vector3 = -global_basis.z
         held_target.set_held(false)
-        held_target.take_hit(
-            throw_dir * 15.0 + Vector3.UP * 5.8,
-            34.0
-        )
+        held_target.take_hit(throw_dir * 15.0 + Vector3.UP * 5.8, 34.0)
         held_target = null
         return
+
     var target = _find_target(2.25)
-    if target == null:
+    if target != null:
+        engaged_target = target
+        engage_timer = 1.0
+        var dir: Vector3 = target.global_position - global_position
+        dir.y = 0.0
+        if dir.length_squared() < 0.01:
+            dir = -global_basis.z
+        target.take_hit(dir.normalized() * 7.6 + Vector3.UP * 1.9, 26.0)
         return
-    engaged_target = target
-    engage_timer = 1.0
-    var dir: Vector3 = target.global_position - global_position
-    dir.y = 0.0
-    if dir.length_squared() < 0.01:
-        dir = -global_basis.z
-    target.take_hit(
-        dir.normalized() * 7.6 + Vector3.UP * 1.9,
-        26.0
-    )
+
+    var prop = _find_prop(2.15)
+    if prop != null:
+        var prop_dir: Vector3 = prop.global_position - global_position
+        prop_dir.y = 0.0
+        if prop_dir.length_squared() < 0.01:
+            prop_dir = -global_basis.z
+        prop.take_hit(prop_dir.normalized() * 8.5 + Vector3.UP * 1.7, 18.0)
 
 func _grab_or_throw() -> void:
     if held_target != null and is_instance_valid(held_target):
         var dir: Vector3 = -global_basis.z
         held_target.set_held(false)
-        held_target.take_hit(
-            dir * 12.5 + Vector3.UP * 4.7,
-            22.0
-        )
+        held_target.take_hit(dir * 12.5 + Vector3.UP * 4.7, 22.0)
         held_target = null
         return
-    var target = _find_target(1.75)
+
+    var target = _find_grabbable(1.85)
     if target == null:
         return
     held_target = target
-    engaged_target = target
-    engage_timer = 2.0
+    if target.is_in_group("enemy"):
+        engaged_target = target
+        engage_timer = 2.0
     target.set_held(true)
 
 func _update_held_target() -> void:
-    var hold_pos: Vector3 = (
-        global_position
-        - global_basis.z * 1.05
-        + Vector3.UP * 1.15
-    )
-    held_target.global_position = held_target.global_position.lerp(
-        hold_pos,
-        0.48
-    )
+    var hold_height := 1.15
+    if held_target.is_in_group("physics_prop"):
+        hold_height = 1.35
+    var hold_pos: Vector3 = global_position - global_basis.z * 1.10 + Vector3.UP * hold_height
+    held_target.global_position = held_target.global_position.lerp(hold_pos, 0.48)
     held_target.rotation.y = rotation.y
+
+func _find_grabbable(radius: float):
+    var best = null
+    var best_score: float = -9999.0
+    var forward: Vector3 = -global_basis.z
+    var candidates: Array = []
+    candidates.append_array(get_tree().get_nodes_in_group("enemy"))
+    candidates.append_array(get_tree().get_nodes_in_group("physics_prop"))
+    for node in candidates:
+        if not is_instance_valid(node):
+            continue
+        if node.is_in_group("enemy") and node.dead:
+            continue
+        if node.is_in_group("physics_prop") and node.mass > 110.0:
+            continue
+        var offset: Vector3 = node.global_position - global_position
+        var dist: float = offset.length()
+        if dist > radius:
+            continue
+        var dir: Vector3 = offset.normalized()
+        var score: float = forward.dot(dir) * 2.2 - dist * 0.60
+        if score > best_score:
+            best_score = score
+            best = node
+    return best
+
+func _find_prop(radius: float):
+    var best = null
+    var best_score: float = -9999.0
+    var forward: Vector3 = -global_basis.z
+    for prop in get_tree().get_nodes_in_group("physics_prop"):
+        if not is_instance_valid(prop):
+            continue
+        var offset: Vector3 = prop.global_position - global_position
+        var dist: float = offset.length()
+        if dist > radius:
+            continue
+        var dir: Vector3 = offset.normalized()
+        var score: float = forward.dot(dir) * 2.0 - dist * 0.55
+        if score > best_score:
+            best_score = score
+            best = prop
+    return best
 
 func _find_target(radius: float):
     if engaged_target != null and is_instance_valid(engaged_target):
