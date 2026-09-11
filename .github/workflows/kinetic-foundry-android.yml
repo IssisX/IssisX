@@ -71,30 +71,21 @@ jobs:
           if [ ! -f "$SETTINGS" ]; then
             printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$SETTINGS"
           fi
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path.home() / ".config/godot/editor_settings-4.3.tres"
-          text = path.read_text()
-          desired = {
-              "export/android/java_sdk_path": "/usr/lib/jvm/java-17-openjdk-amd64",
-              "export/android/android_sdk_path": "/usr/lib/android-sdk",
-              "export/android/debug_keystore": "/root/debug.keystore",
-              "export/android/debug_keystore_user": "androiddebugkey",
-              "export/android/debug_keystore_pass": "android",
-          }
-          lines = text.splitlines()
-          for key, value in desired.items():
-              prefix = key + " = "
-              replacement = f'{key} = "{value}"'
-              for i, line in enumerate(lines):
-                  if line.startswith(prefix):
-                      lines[i] = replacement
-                      break
-              else:
-                  lines.append(replacement)
-          path.write_text("\n".join(lines) + "\n")
-          print(path.read_text())
-          PY
+          sed -i \
+            -e '/^export\/android\/java_sdk_path = /d' \
+            -e '/^export\/android\/android_sdk_path = /d' \
+            -e '/^export\/android\/debug_keystore = /d' \
+            -e '/^export\/android\/debug_keystore_user = /d' \
+            -e '/^export\/android\/debug_keystore_pass = /d' \
+            "$SETTINGS"
+          cat >> "$SETTINGS" <<'EOF'
+          export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
+          export/android/android_sdk_path = "/usr/lib/android-sdk"
+          export/android/debug_keystore = "/root/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          cat "$SETTINGS"
           test -f /root/debug.keystore
 
       - name: Import and validate Godot project
@@ -142,25 +133,12 @@ jobs:
         run: |
           set -euo pipefail
           APK="$PROJECT_PATH/build/android/${EXPORT_NAME}.apk"
-          python3 - <<'PY'
-          import zipfile
-          from pathlib import Path
-          apk = Path("kinetic-foundry/build/android/KineticFoundry-debug.apk")
-          if not apk.is_file() or apk.stat().st_size < 1_000_000:
-              raise SystemExit(f"APK missing or implausibly small: {apk}")
-          with zipfile.ZipFile(apk) as zf:
-              bad = zf.testzip()
-              if bad:
-                  raise SystemExit(f"APK ZIP CRC failure: {bad}")
-              names = set(zf.namelist())
-              required = {"AndroidManifest.xml", "classes.dex"}
-              missing = sorted(required - names)
-              if missing:
-                  raise SystemExit(f"APK missing entries: {missing}")
-              if not any(n.startswith("lib/arm64-v8a/") for n in names):
-                  raise SystemExit("APK has no arm64-v8a native library")
-          print(f"APK_OK bytes={apk.stat().st_size}")
-          PY
+          test -s "$APK"
+          test "$(stat -c%s "$APK")" -gt 1000000
+          unzip -t "$APK"
+          unzip -l "$APK" | grep -q 'AndroidManifest.xml'
+          unzip -l "$APK" | grep -q 'classes.dex'
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/'
           sha256sum "$APK"
 
       - name: Upload playable APK artifact
