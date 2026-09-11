@@ -2,29 +2,36 @@ class_name FoundryPlayer
 extends CharacterBody3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
+const HumanoidRigScript = preload("res://scripts/humanoid_rig.gd")
 
 signal request_machine_entry(player)
 
 var hud
 var camera_rig
 var health := 180.0
+var max_health := 180.0
 var speed := 7.4
 var sprint_speed := 10.2
 var engaged_target
 var engage_timer := 0.0
 var held_target
 var attack_cooldown := 0.0
-var _visual: Node3D
-var _phase := 0.0
+var attack_anim := 0.0
+var hit_anim := 0.0
+var combo_window := 0.0
+var combo_step := 0
+var attack_side := 1.0
+var _rig
 
 func _ready() -> void:
     add_to_group("player")
     collision_layer = 1
     collision_mask = 1 | 2 | 4 | 8
-    GeomUtil.add_capsule_collision(self, 0.46, 1.82)
-    _visual = Node3D.new()
-    add_child(_visual)
-    _build_visual()
+    var collision := GeomUtil.add_capsule_collision(self, 0.46, 1.82)
+    collision.position.y = 0.91
+    _rig = HumanoidRigScript.new()
+    add_child(_rig)
+    _rig.configure(true)
 
 func configure(controls, camera) -> void:
     hud = controls
@@ -32,108 +39,27 @@ func configure(controls, camera) -> void:
 
 func receive_enemy_hit(damage: float) -> void:
     health = maxf(0.0, health - damage)
+    hit_anim = 0.28
+    if hud != null and hud.has_method("flash_damage"):
+        hud.flash_damage()
 
-func _build_visual() -> void:
-    var pelvis := GeomUtil.box_mesh(
-        Vector3(0.72, 0.38, 0.42),
-        Color(0.105, 0.115, 0.108),
-        0.86,
-        0.02
-    )
-    pelvis.position.y = 0.90
-    _visual.add_child(pelvis)
-
-    var torso := GeomUtil.box_mesh(
-        Vector3(0.88, 0.92, 0.50),
-        Color(0.18, 0.21, 0.20),
-        0.72,
-        0.08
-    )
-    torso.position.y = 1.38
-    _visual.add_child(torso)
-
-    var vest := GeomUtil.box_mesh(
-        Vector3(0.74, 0.46, 0.08),
-        Color(0.48, 0.30, 0.08),
-        0.82,
-        0.05
-    )
-    vest.position = Vector3(0.0, 1.43, -0.29)
-    _visual.add_child(vest)
-
-    var neck := GeomUtil.capsule_mesh(
-        0.11,
-        0.28,
-        Color(0.52, 0.39, 0.30)
-    )
-    neck.position.y = 1.92
-    _visual.add_child(neck)
-
-    var head := GeomUtil.sphere_mesh(
-        0.27,
-        Color(0.62, 0.46, 0.35)
-    )
-    head.position.y = 2.10
-    _visual.add_child(head)
-
-    var helmet := GeomUtil.box_mesh(
-        Vector3(0.55, 0.18, 0.56),
-        Color(0.15, 0.17, 0.16),
-        0.66,
-        0.10
-    )
-    helmet.position = Vector3(0.0, 2.28, 0.0)
-    _visual.add_child(helmet)
-
-    for side in [-1.0, 1.0]:
-        var shoulder := GeomUtil.sphere_mesh(
-            0.20,
-            Color(0.24, 0.27, 0.25)
-        )
-        shoulder.position = Vector3(side * 0.55, 1.62, 0.0)
-        _visual.add_child(shoulder)
-
-        var arm := GeomUtil.capsule_mesh(
-            0.13,
-            0.82,
-            Color(0.23, 0.26, 0.24)
-        )
-        arm.name = "Arm"
-        arm.position = Vector3(side * 0.56, 1.22, 0.0)
-        _visual.add_child(arm)
-
-        var glove := GeomUtil.sphere_mesh(
-            0.15,
-            Color(0.07, 0.075, 0.07)
-        )
-        glove.position = Vector3(side * 0.56, 0.79, 0.0)
-        _visual.add_child(glove)
-
-        var leg := GeomUtil.capsule_mesh(
-            0.16,
-            0.92,
-            Color(0.085, 0.09, 0.085)
-        )
-        leg.name = "Leg"
-        leg.position = Vector3(side * 0.23, 0.48, 0.0)
-        _visual.add_child(leg)
-
-        var boot := GeomUtil.box_mesh(
-            Vector3(0.30, 0.20, 0.48),
-            Color(0.055, 0.06, 0.055),
-            0.96,
-            0.04
-        )
-        boot.position = Vector3(side * 0.23, 0.10, -0.08)
-        _visual.add_child(boot)
+func receive_hazard_hit(damage: float, impulse: Vector3) -> void:
+    receive_enemy_hit(damage)
+    velocity += impulse
 
 func _physics_process(delta: float) -> void:
     if hud == null or camera_rig == null:
         return
     attack_cooldown = maxf(0.0, attack_cooldown - delta)
+    attack_anim = maxf(0.0, attack_anim - delta)
+    hit_anim = maxf(0.0, hit_anim - delta)
+    combo_window = maxf(0.0, combo_window - delta)
     engage_timer = maxf(0.0, engage_timer - delta)
+    if combo_window <= 0.0:
+        combo_step = 0
     if engage_timer <= 0.0 and held_target == null:
         engaged_target = null
+
     var axis: Vector2 = hud.move_axis + _keyboard_axis()
     if axis.length() > 1.0:
         axis = axis.normalized()
@@ -143,16 +69,22 @@ func _physics_process(delta: float) -> void:
     var target_speed: float = speed
     if axis.length() > 0.94:
         target_speed = sprint_speed
+    if attack_anim > 0.0:
+        target_speed *= 0.42
+
     if desired.length_squared() > 0.001:
         desired = desired.normalized()
         velocity.x = move_toward(velocity.x, desired.x * target_speed, 32.0 * delta)
         velocity.z = move_toward(velocity.z, desired.z * target_speed, 32.0 * delta)
-        rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), 0.22)
+        if attack_anim <= 0.0:
+            rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), 0.22)
     else:
         velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
         velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
+
     if not is_on_floor():
         velocity.y -= 26.0 * delta
+
     var look: Vector2 = hud.consume_look()
     camera_rig.apply_look(look)
     if hud.consume_attack() or _keyboard_attack():
@@ -161,10 +93,28 @@ func _physics_process(delta: float) -> void:
         _grab_or_throw()
     if hud.consume_use() or _keyboard_use():
         request_machine_entry.emit(self)
+
     if held_target != null and is_instance_valid(held_target):
         _update_held_target()
+
     move_and_slide()
     _animate(delta)
+    _update_hud()
+
+func _update_hud() -> void:
+    if hud == null:
+        return
+    if hud.has_method("set_health"):
+        hud.set_health(health / max_health)
+    if hud.has_method("set_target"):
+        hud.set_target(engaged_target)
+    if hud.has_method("set_context"):
+        if held_target != null and is_instance_valid(held_target):
+            hud.set_context("HOLDING // HIT TO HURL")
+        elif engaged_target != null and is_instance_valid(engaged_target):
+            hud.set_context("ADAPTIVE LOCK")
+        else:
+            hud.set_context("POWER // COMBAT // MACHINES")
 
 func _keyboard_axis() -> Vector2:
     var axis := Vector2.ZERO
@@ -190,23 +140,38 @@ func _keyboard_use() -> bool:
 func _attack() -> void:
     if attack_cooldown > 0.0:
         return
-    attack_cooldown = 0.34
+    attack_cooldown = 0.24 if combo_step < 2 else 0.38
+    attack_anim = 0.28
+    attack_side *= -1.0
+    if _rig != null:
+        _rig.set_attack_side(attack_side)
+
     if held_target != null and is_instance_valid(held_target):
         var throw_dir: Vector3 = -global_basis.z
         held_target.set_held(false)
-        held_target.take_hit(throw_dir * 15.0 + Vector3.UP * 5.8, 34.0)
+        held_target.take_hit(throw_dir * 17.0 + Vector3.UP * 6.2, 38.0)
         held_target = null
+        combo_step = 0
+        combo_window = 0.0
         return
 
-    var target = _find_target(2.25)
+    var damage := [24.0, 29.0, 39.0][combo_step]
+    var push_strength := [7.4, 8.8, 13.8][combo_step]
+    var lift := [1.5, 2.0, 3.9][combo_step]
+    var target = _find_target(2.35)
     if target != null:
         engaged_target = target
-        engage_timer = 1.0
+        engage_timer = 1.15
         var dir: Vector3 = target.global_position - global_position
         dir.y = 0.0
         if dir.length_squared() < 0.01:
             dir = -global_basis.z
-        target.take_hit(dir.normalized() * 7.6 + Vector3.UP * 1.9, 26.0)
+        dir = dir.normalized()
+        rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), 0.62)
+        velocity += dir * (1.7 if combo_step < 2 else 2.8)
+        target.take_hit(dir * push_strength + Vector3.UP * lift, damage)
+        combo_step = (combo_step + 1) % 3
+        combo_window = 0.66
         return
 
     var prop = _find_prop(2.15)
@@ -215,17 +180,21 @@ func _attack() -> void:
         prop_dir.y = 0.0
         if prop_dir.length_squared() < 0.01:
             prop_dir = -global_basis.z
-        prop.take_hit(prop_dir.normalized() * 8.5 + Vector3.UP * 1.7, 18.0)
+        prop_dir = prop_dir.normalized()
+        prop.take_hit(prop_dir * 9.5 + Vector3.UP * 1.9, damage * 0.80)
+        velocity += prop_dir * 0.8
+    combo_step = 0
+    combo_window = 0.0
 
 func _grab_or_throw() -> void:
     if held_target != null and is_instance_valid(held_target):
         var dir: Vector3 = -global_basis.z
         held_target.set_held(false)
-        held_target.take_hit(dir * 12.5 + Vector3.UP * 4.7, 22.0)
+        held_target.take_hit(dir * 13.5 + Vector3.UP * 5.2, 24.0)
         held_target = null
         return
 
-    var target = _find_grabbable(1.85)
+    var target = _find_grabbable(1.90)
     if target == null:
         return
     held_target = target
@@ -235,11 +204,11 @@ func _grab_or_throw() -> void:
     target.set_held(true)
 
 func _update_held_target() -> void:
-    var hold_height := 1.15
+    var hold_height := 1.20
     if held_target.is_in_group("physics_prop"):
-        hold_height = 1.35
-    var hold_pos: Vector3 = global_position - global_basis.z * 1.10 + Vector3.UP * hold_height
-    held_target.global_position = held_target.global_position.lerp(hold_pos, 0.48)
+        hold_height = 1.40
+    var hold_pos: Vector3 = global_position - global_basis.z * 1.12 + Vector3.UP * hold_height
+    held_target.global_position = held_target.global_position.lerp(hold_pos, 0.52)
     held_target.rotation.y = rotation.y
 
 func _find_grabbable(radius: float):
@@ -288,15 +257,13 @@ func _find_prop(radius: float):
 func _find_target(radius: float):
     if engaged_target != null and is_instance_valid(engaged_target):
         var d: float = global_position.distance_to(engaged_target.global_position)
-        if d <= radius * 1.25:
+        if d <= radius * 1.30:
             return engaged_target
     var best = null
     var best_score: float = -9999.0
     var forward: Vector3 = -global_basis.z
     for enemy in get_tree().get_nodes_in_group("enemy"):
-        if not enemy.visible:
-            continue
-        if enemy.dead:
+        if not enemy.visible or enemy.dead:
             continue
         var offset: Vector3 = enemy.global_position - global_position
         var dist: float = offset.length()
@@ -311,17 +278,9 @@ func _find_target(radius: float):
     return best
 
 func _animate(delta: float) -> void:
-    var planar := Vector2(velocity.x, velocity.z).length()
-    _phase += delta * planar * 2.25
-    if _visual == null:
+    if _rig == null:
         return
-    var swing := sin(_phase) * 0.44 * minf(planar / speed, 1.0)
-    var arm_i := 0
-    var leg_i := 0
-    for child in _visual.get_children():
-        if child.name == "Arm":
-            child.rotation.x = swing if arm_i == 0 else -swing
-            arm_i += 1
-        elif child.name == "Leg":
-            child.rotation.x = -swing if leg_i == 0 else swing
-            leg_i += 1
+    var planar := Vector2(velocity.x, velocity.z).length()
+    var attack_amount := attack_anim / 0.28 if attack_anim > 0.0 else 0.0
+    var hit_amount := hit_anim / 0.28 if hit_anim > 0.0 else 0.0
+    _rig.animate(delta, planar, speed, attack_amount, hit_amount, health <= 0.0)
