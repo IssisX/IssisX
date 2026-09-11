@@ -1,16 +1,18 @@
 class_name FoundryPlayer
 extends CharacterBody3D
 
-signal request_machine_entry(player: FoundryPlayer)
+const GeomUtil = preload("res://scripts/geom.gd")
 
-var hud: MobileHud
-var camera_rig: CameraRig
+signal request_machine_entry(player)
+
+var hud
+var camera_rig
 var health := 180.0
 var speed := 7.4
 var sprint_speed := 10.2
-var engaged_target: FoundryEnemy
+var engaged_target
 var engage_timer := 0.0
-var held_target: FoundryEnemy
+var held_target
 var attack_cooldown := 0.0
 var _visual: Node3D
 var _phase := 0.0
@@ -19,15 +21,12 @@ func _ready() -> void:
     add_to_group("player")
     collision_layer = 1
     collision_mask = 1 | 2 | 4 | 8
-    Geom.add_capsule_collision(self, 0.46, 1.82)
+    GeomUtil.add_capsule_collision(self, 0.46, 1.82)
     _visual = Node3D.new()
     add_child(_visual)
     _build_visual()
 
-func configure(
-        controls: MobileHud,
-        camera: CameraRig
-) -> void:
+func configure(controls, camera) -> void:
     hud = controls
     camera_rig = camera
 
@@ -35,7 +34,7 @@ func receive_enemy_hit(damage: float) -> void:
     health = maxf(0.0, health - damage)
 
 func _build_visual() -> void:
-    var torso := Geom.box_mesh(
+    var torso := GeomUtil.box_mesh(
         Vector3(0.86, 1.02, 0.48),
         Color(0.20, 0.23, 0.22),
         0.72,
@@ -43,21 +42,21 @@ func _build_visual() -> void:
     )
     torso.position.y = 1.24
     _visual.add_child(torso)
-    var head := Geom.sphere_mesh(
+    var head := GeomUtil.sphere_mesh(
         0.27,
         Color(0.64, 0.48, 0.37)
     )
     head.position.y = 2.00
     _visual.add_child(head)
     for side in [-1.0, 1.0]:
-        var arm := Geom.box_mesh(
+        var arm := GeomUtil.box_mesh(
             Vector3(0.25, 0.84, 0.27),
             Color(0.25, 0.28, 0.26)
         )
         arm.name = "Arm"
         arm.position = Vector3(side * 0.56, 1.28, 0.0)
         _visual.add_child(arm)
-        var leg := Geom.box_mesh(
+        var leg := GeomUtil.box_mesh(
             Vector3(0.29, 0.88, 0.30),
             Color(0.10, 0.11, 0.10)
         )
@@ -150,7 +149,7 @@ func _attack() -> void:
         )
         held_target = null
         return
-    var target := _find_target(2.25)
+    var target = _find_target(2.25)
     if target == null:
         return
     engaged_target = target
@@ -174,7 +173,7 @@ func _grab_or_throw() -> void:
         )
         held_target = null
         return
-    var target := _find_target(1.75)
+    var target = _find_target(1.75)
     if target == null:
         return
     held_target = target
@@ -194,30 +193,24 @@ func _update_held_target() -> void:
     )
     held_target.rotation.y = rotation.y
 
-func _find_target(radius: float) -> FoundryEnemy:
-    if engaged_target != null:
-        if is_instance_valid(engaged_target):
-            var d := global_position.distance_to(
-                engaged_target.global_position
-            )
-            if d <= radius * 1.25:
-                return engaged_target
-    var best: FoundryEnemy
+func _find_target(radius: float):
+    if engaged_target != null and is_instance_valid(engaged_target):
+        var d := global_position.distance_to(engaged_target.global_position)
+        if d <= radius * 1.25:
+            return engaged_target
+    var best = null
     var best_score := -9999.0
     var forward := -global_basis.z
-    for node in get_tree().get_nodes_in_group("enemy"):
-        if not (node is FoundryEnemy):
-            continue
-        var enemy := node as FoundryEnemy
+    for enemy in get_tree().get_nodes_in_group("enemy"):
         if not enemy.visible:
             continue
         if enemy.dead:
             continue
-        var delta := enemy.global_position - global_position
-        var dist := delta.length()
+        var offset := enemy.global_position - global_position
+        var dist := offset.length()
         if dist > radius:
             continue
-        var dir := delta.normalized()
+        var dir := offset.normalized()
         var facing := forward.dot(dir)
         var score := facing * 2.0 - dist * 0.55
         if score > best_score:
