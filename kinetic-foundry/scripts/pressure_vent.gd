@@ -23,30 +23,24 @@ func _build_visual() -> void:
     var base := GeomUtil.cylinder_mesh(0.46, 1.55, Color(0.17, 0.18, 0.17), 0.84, 0.30)
     base.position.y = 0.78
     add_child(base)
-
     var elbow := GeomUtil.cylinder_mesh(0.34, 1.45, Color(0.23, 0.24, 0.22), 0.80, 0.34)
     elbow.rotation.x = PI * 0.5
     elbow.position = Vector3(0.0, 1.34, -0.62)
     add_child(elbow)
-
     var nozzle := GeomUtil.cylinder_mesh(0.48, 0.34, Color(0.10, 0.11, 0.10), 0.76, 0.42)
     nozzle.rotation.x = PI * 0.5
     nozzle.position = Vector3(0.0, 1.34, -1.32)
     add_child(nozzle)
-
     var beacon := GeomUtil.cylinder_mesh(0.16, 0.18, Color(0.75, 0.12, 0.035), 0.38, 0.10)
-    var beacon_mat := GeomUtil.emissive_material(Color(0.85, 0.10, 0.025), 2.8, 0.36, 0.04)
-    beacon.material_override = beacon_mat
+    beacon.material_override = GeomUtil.emissive_material(Color(0.85, 0.10, 0.025), 2.8, 0.36, 0.04)
     beacon.position = Vector3(0.0, 1.90, 0.0)
     add_child(beacon)
-
     warning_light = OmniLight3D.new()
     warning_light.position = Vector3(0.0, 1.92, 0.0)
     warning_light.light_color = Color(1.0, 0.12, 0.03)
     warning_light.light_energy = 0.6
     warning_light.omni_range = 3.8
     add_child(warning_light)
-
     var steam_mat := StandardMaterial3D.new()
     steam_mat.albedo_color = Color(0.70, 0.78, 0.78, 0.22)
     steam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -61,7 +55,7 @@ func _build_visual() -> void:
 func _build_area() -> void:
     area = Area3D.new()
     area.collision_layer = 0
-    area.collision_mask = 1 | 4 | 8
+    area.collision_mask = 1 | 2 | 4 | 8
     area.monitoring = true
     add_child(area)
     var shape := BoxShape3D.new()
@@ -90,11 +84,7 @@ func _animate_steam(active: bool) -> void:
             continue
         var t := fposmod(timer / burst_duration + float(i) * 0.145, 1.0)
         puff.visible = true
-        puff.position = Vector3(
-            sin(float(i) * 2.1) * 0.18 * t,
-            1.34 + sin(float(i) * 1.37) * 0.10 * t,
-            -1.52 - t * 5.25
-        )
+        puff.position = Vector3(sin(float(i) * 2.1) * 0.18 * t, 1.34 + sin(float(i) * 1.37) * 0.10 * t, -1.52 - t * 5.25)
         var s := 0.55 + t * 1.35
         puff.scale = Vector3(s * 0.82, s, s * 1.18)
 
