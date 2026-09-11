@@ -1,6 +1,6 @@
 extends StaticBody3D
 
-var frame: StructuralFrame
+var frame
 
 func machine_hit(amount: float, direction: Vector3) -> void:
     if frame == null:
