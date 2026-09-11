@@ -2,9 +2,12 @@ class_name Excavator
 extends CharacterBody3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
+const ImpactFx = preload("res://scripts/impact_fx.gd")
+const VisualBuilder = preload("res://scripts/excavator_visual.gd")
 
 signal player_entered(machine)
 signal player_exited(machine)
+signal machine_disabled(machine)
 
 var player_driver: Node3D
 var enemy_driver: Node3D
@@ -19,12 +22,25 @@ var tool_angle := -0.18
 var arm_yaw := 0.0
 var ai_time := 0.0
 
+var chassis_health := 500.0
+var hydraulic_health := 260.0
+var track_health := 320.0
+var disabled := false
+var held_load
+
 var _boom: Node3D
 var _stick: Node3D
 var _tool: Node3D
+var _thumb: Node3D
+var _grip_anchor: Node3D
 var _impact_probe: Area3D
+var _work_light: OmniLight3D
+var _engine_cover: MeshInstance3D
 var _impact_cooldown := 0.0
+var _damage_fx_cooldown := 0.0
+var _telemetry_timer := 0.0
 var _tool_tip_last := Vector3.ZERO
+var _tool_tip_velocity := Vector3.ZERO
 var _tool_tip_speed := 0.0
 var _tool_motion_ready := false
 
@@ -34,7 +50,15 @@ func _ready() -> void:
     collision_mask = 1 | 4 | 8
     var collision := GeomUtil.add_box_collision(self, Vector3(2.95, 1.45, 4.5))
     collision.position.y = 0.90
-    _build_visual()
+    var nodes := VisualBuilder.build(self)
+    _boom = nodes.boom
+    _stick = nodes.stick
+    _tool = nodes.tool
+    _thumb = nodes.thumb
+    _grip_anchor = nodes.grip_anchor
+    _impact_probe = nodes.impact_probe
+    _work_light = nodes.work_light
+    _engine_cover = nodes.engine_cover
 
 func configure(controls, camera) -> void:
     hud = controls
@@ -49,8 +73,24 @@ func set_enemy_driver(driver: Node3D) -> void:
 func is_player_driven() -> bool:
     return player_driver != null
 
+func get_health_ratio() -> float:
+    return clampf(chassis_health / 500.0, 0.0, 1.0)
+
+func get_hydraulic_ratio() -> float:
+    return clampf(hydraulic_health / 260.0, 0.0, 1.0)
+
+func get_track_ratio() -> float:
+    return clampf(track_health / 320.0, 0.0, 1.0)
+
+func get_tool_force() -> float:
+    var chassis_speed := Vector3(velocity.x, 0.0, velocity.z).length()
+    return 16.0 + chassis_speed * 10.0 + minf(_tool_tip_speed, 15.0) * 5.8
+
+func is_holding_load() -> bool:
+    return held_load != null and is_instance_valid(held_load)
+
 func try_enter(player: Node3D) -> bool:
-    if global_position.distance_to(player.global_position) > 3.3:
+    if disabled or global_position.distance_to(player.global_position) > 3.3:
         return false
     if enemy_driver != null:
         enemy_driver.visible = true
@@ -62,169 +102,124 @@ func try_enter(player: Node3D) -> bool:
     player_driver = player
     player.visible = false
     player.process_mode = Node.PROCESS_MODE_DISABLED
-    if hud != null and hud.has_method("set_machine_mode"):
+    if hud != null:
         hud.set_machine_mode(true)
-    if hud != null and hud.has_method("set_context"):
-        hud.set_context("DIRECT BOOM // BUCKET FORCE")
+        hud.set_context("DIRECT BOOM // PHYSICAL BUCKET // HYDRAULIC THUMB")
     player_entered.emit(self)
     return true
 
 func exit_player() -> void:
     if player_driver == null:
         return
+    _release_load(false)
     var player := player_driver
     player_driver = null
     player.visible = true
     player.process_mode = Node.PROCESS_MODE_INHERIT
     player.global_position = global_position + global_basis.x * 2.8 + Vector3.UP * 0.22
-    if hud != null and hud.has_method("set_machine_mode"):
+    if hud != null:
         hud.set_machine_mode(false)
-    if hud != null and hud.has_method("set_context"):
         hud.set_context("POWER // COMBAT // MACHINES")
     player_exited.emit(self)
 
-func _build_visual() -> void:
-    var undercarriage := GeomUtil.box_mesh(Vector3(3.25, 0.46, 4.45), Color(0.09, 0.095, 0.085), 0.94, 0.18)
-    undercarriage.position.y = 0.62
-    add_child(undercarriage)
+func receive_enemy_hit(damage: float) -> void:
+    _apply_machine_damage(damage, Vector3.UP)
 
-    for side in [-1.0, 1.0]:
-        var track := GeomUtil.box_mesh(Vector3(0.68, 0.82, 4.55), Color(0.055, 0.06, 0.055), 0.98, 0.22)
-        track.position = Vector3(side * 1.43, 0.58, 0.0)
-        add_child(track)
-        for shoe_i in 8:
-            var shoe := GeomUtil.box_mesh(Vector3(0.78, 0.09, 0.46), Color(0.16, 0.17, 0.15), 0.94, 0.28)
-            shoe.position = Vector3(side * 1.43, 1.02, -1.62 + float(shoe_i) * 0.47)
-            add_child(shoe)
+func receive_hazard_hit(damage: float, impulse: Vector3) -> void:
+    velocity += impulse * 0.22
+    _apply_machine_damage(damage * 0.72, impulse.normalized() if impulse.length_squared() > 0.01 else Vector3.UP)
 
-    var turntable := GeomUtil.capsule_mesh(1.15, 0.44, Color(0.18, 0.19, 0.17))
-    turntable.scale = Vector3(1.0, 0.45, 1.0)
-    turntable.position.y = 1.10
-    add_child(turntable)
+func machine_hit(amount: float, direction: Vector3) -> void:
+    velocity += direction.normalized() * minf(amount * 0.018, 3.8)
+    _apply_machine_damage(amount * 0.58, direction)
 
-    var chassis := GeomUtil.box_mesh(Vector3(2.85, 1.16, 3.72), Color(0.80, 0.47, 0.055), 0.66, 0.16)
-    chassis.position = Vector3(0.0, 1.65, 0.16)
-    add_child(chassis)
+func _apply_machine_damage(amount: float, direction: Vector3) -> void:
+    if disabled:
+        return
+    chassis_health = maxf(0.0, chassis_health - amount)
+    var side_load := absf(direction.dot(global_basis.x))
+    var vertical_load := absf(direction.y)
+    track_health = maxf(0.0, track_health - amount * (0.18 + side_load * 0.36))
+    hydraulic_health = maxf(0.0, hydraulic_health - amount * (0.12 + vertical_load * 0.28))
+    _damage_fx_cooldown = 0.0
+    ImpactFx.spawn(get_parent(), global_position + Vector3.UP * 1.7, direction, Color(1.0, 0.48, 0.08), clampf(amount / 16.0, 0.8, 4.0), 10)
+    _refresh_damage_visuals()
+    if chassis_health <= 0.0:
+        disabled = true
+        _release_load(true)
+        velocity *= 0.2
+        if _work_light != null:
+            _work_light.light_energy = 0.0
+        machine_disabled.emit(self)
 
-    var counterweight := GeomUtil.box_mesh(Vector3(2.75, 1.34, 1.22), Color(0.74, 0.40, 0.045), 0.72, 0.18)
-    counterweight.position = Vector3(0.0, 1.82, 1.55)
-    add_child(counterweight)
-
-    var engine_cover := GeomUtil.box_mesh(Vector3(1.18, 1.18, 1.65), Color(0.68, 0.37, 0.045), 0.70, 0.14)
-    engine_cover.position = Vector3(0.70, 2.15, 0.58)
-    add_child(engine_cover)
-
-    var cab_frame := GeomUtil.box_mesh(Vector3(1.46, 1.90, 1.72), Color(0.085, 0.095, 0.09), 0.56, 0.28)
-    cab_frame.position = Vector3(-0.66, 2.48, 0.34)
-    add_child(cab_frame)
-
-    var windshield := GeomUtil.box_mesh(Vector3(1.08, 1.34, 0.055), Color(0.10, 0.20, 0.22), 0.22, 0.40)
-    windshield.position = Vector3(-0.66, 2.53, -0.55)
-    add_child(windshield)
-
-    var side_window := GeomUtil.box_mesh(Vector3(0.055, 1.28, 1.04), Color(0.10, 0.20, 0.22), 0.22, 0.40)
-    side_window.position = Vector3(-1.42, 2.54, 0.18)
-    add_child(side_window)
-
-    var work_light := OmniLight3D.new()
-    work_light.position = Vector3(-0.74, 3.47, -0.58)
-    work_light.light_color = Color(1.0, 0.72, 0.38)
-    work_light.light_energy = 1.8
-    work_light.omni_range = 7.5
-    work_light.shadow_enabled = false
-    add_child(work_light)
-
-    _boom = Node3D.new()
-    _boom.position = Vector3(0.62, 2.37, -0.88)
-    add_child(_boom)
-    var boom_joint := GeomUtil.sphere_mesh(0.42, Color(0.18, 0.19, 0.17))
-    _boom.add_child(boom_joint)
-    var boom_mesh := GeomUtil.box_mesh(Vector3(0.58, 0.66, 4.72), Color(0.84, 0.49, 0.055), 0.61, 0.14)
-    boom_mesh.position.z = -2.15
-    _boom.add_child(boom_mesh)
-    var boom_rod := GeomUtil.capsule_mesh(0.095, 3.55, Color(0.68, 0.69, 0.64))
-    boom_rod.rotation.x = PI * 0.5
-    boom_rod.position = Vector3(0.42, 0.20, -1.72)
-    _boom.add_child(boom_rod)
-
-    _stick = Node3D.new()
-    _stick.position = Vector3(0.0, 0.0, -4.28)
-    _boom.add_child(_stick)
-    var stick_joint := GeomUtil.sphere_mesh(0.34, Color(0.18, 0.19, 0.17))
-    _stick.add_child(stick_joint)
-    var stick_mesh := GeomUtil.box_mesh(Vector3(0.46, 0.54, 3.58), Color(0.84, 0.49, 0.055), 0.61, 0.14)
-    stick_mesh.position.z = -1.65
-    _stick.add_child(stick_mesh)
-    var stick_rod := GeomUtil.capsule_mesh(0.075, 2.70, Color(0.69, 0.70, 0.66))
-    stick_rod.rotation.x = PI * 0.5
-    stick_rod.position = Vector3(-0.34, 0.18, -1.28)
-    _stick.add_child(stick_rod)
-
-    _tool = Node3D.new()
-    _tool.position = Vector3(0.0, 0.0, -3.28)
-    _stick.add_child(_tool)
-    var bucket := GeomUtil.box_mesh(Vector3(1.86, 1.12, 1.30), Color(0.24, 0.25, 0.225), 0.90, 0.38)
-    bucket.position = Vector3(0.0, -0.12, -0.52)
-    _tool.add_child(bucket)
-    for tooth_i in 4:
-        var tooth := GeomUtil.box_mesh(Vector3(0.22, 0.20, 0.54), Color(0.17, 0.18, 0.16), 0.94, 0.42)
-        tooth.position = Vector3(-0.66 + float(tooth_i) * 0.44, -0.46, -1.08)
-        tooth.rotation.x = -0.22
-        _tool.add_child(tooth)
-
-    _impact_probe = Area3D.new()
-    _impact_probe.collision_layer = 0
-    _impact_probe.collision_mask = 4 | 8
-    _tool.add_child(_impact_probe)
-    var shape := BoxShape3D.new()
-    shape.size = Vector3(2.0, 1.35, 1.7)
-    var impact_collision := CollisionShape3D.new()
-    impact_collision.shape = shape
-    impact_collision.position.z = -0.45
-    _impact_probe.add_child(impact_collision)
+func _refresh_damage_visuals() -> void:
+    if _engine_cover == null:
+        return
+    var c := Color(0.68, 0.37, 0.045)
+    if get_health_ratio() < 0.65:
+        c = Color(0.55, 0.24, 0.035)
+    if get_health_ratio() < 0.32:
+        c = Color(0.28, 0.11, 0.025)
+    _engine_cover.material_override = GeomUtil.material(c, 0.78, 0.18)
 
 func _physics_process(delta: float) -> void:
     _impact_cooldown = maxf(0.0, _impact_cooldown - delta)
-    if player_driver != null:
+    _damage_fx_cooldown = maxf(0.0, _damage_fx_cooldown - delta)
+    _telemetry_timer = maxf(0.0, _telemetry_timer - delta)
+
+    if disabled:
+        velocity.x = move_toward(velocity.x, 0.0, 7.0 * delta)
+        velocity.z = move_toward(velocity.z, 0.0, 7.0 * delta)
+    elif player_driver != null:
         _player_control(delta)
     elif enemy_driver != null:
         _enemy_control(delta)
     else:
         velocity.x = move_toward(velocity.x, 0.0, 12.0 * delta)
         velocity.z = move_toward(velocity.z, 0.0, 12.0 * delta)
+
     if not is_on_floor():
         velocity.y -= 26.0 * delta
     move_and_slide()
     _apply_arm_pose()
     _update_tool_motion(delta)
+    _update_held_load()
     _resolve_tool_impacts()
+    _update_damage_fx()
+    _update_telemetry()
 
 func _player_control(delta: float) -> void:
     if hud == null or camera_rig == null:
         return
+    var track_ratio := maxf(get_track_ratio(), 0.18)
+    var hydraulic_ratio := maxf(get_hydraulic_ratio(), 0.22)
     var axis: Vector2 = hud.move_axis
     var throttle: float = -axis.y
     var steering: float = axis.x
     var forward: Vector3 = -global_basis.z
-    velocity.x = forward.x * throttle * drive_speed
-    velocity.z = forward.z * throttle * drive_speed
-    rotation.y -= steering * turn_speed * delta
+    velocity.x = forward.x * throttle * drive_speed * track_ratio
+    velocity.z = forward.z * throttle * drive_speed * track_ratio
+    rotation.y -= steering * turn_speed * track_ratio * delta
+
     var look: Vector2 = hud.consume_look()
-    arm_yaw -= look.x * 0.0032
-    boom_angle += look.y * 0.0026
+    arm_yaw -= look.x * 0.0032 * hydraulic_ratio
+    boom_angle += look.y * 0.0026 * hydraulic_ratio
     arm_yaw = clamp(arm_yaw, -1.25, 1.25)
     boom_angle = clamp(boom_angle, -0.95, 0.42)
+
     if hud.consume_attack():
-        stick_angle -= 0.36
-        tool_angle -= 0.30
+        stick_angle -= 0.36 * hydraulic_ratio
+        tool_angle -= 0.30 * hydraulic_ratio
         _impact_cooldown = 0.0
     if hud.consume_grab():
-        stick_angle += 0.28
-        tool_angle += 0.34
-    if hud.consume_use():
+        if is_holding_load():
+            _release_load(true)
+        elif not _try_grip_load():
+            stick_angle += 0.24 * hydraulic_ratio
+            tool_angle += 0.28 * hydraulic_ratio
+    if hud.consume_use() or Input.is_physical_key_pressed(KEY_E):
         exit_player()
-    elif Input.is_physical_key_pressed(KEY_E):
-        exit_player()
+
     stick_angle = clamp(stick_angle, -0.55, 1.00)
     tool_angle = clamp(tool_angle, -1.0, 0.72)
 
@@ -240,27 +235,70 @@ func _enemy_control(delta: float) -> void:
         rotation.y = lerp_angle(rotation.y, desired, 0.018)
     var forward: Vector3 = -global_basis.z
     var throttle: float = 1.0 if to_target.length() > 7.0 else 0.0
-    velocity.x = forward.x * throttle * drive_speed * 0.48
-    velocity.z = forward.z * throttle * drive_speed * 0.48
-    arm_yaw = sin(ai_time * 0.74) * 0.46
-    boom_angle = -0.35 + sin(ai_time * 0.88) * 0.18
-    stick_angle = 0.30 + sin(ai_time * 1.14) * 0.22
-    tool_angle = -0.15 + sin(ai_time * 1.31) * 0.22
+    var track_ratio := maxf(get_track_ratio(), 0.22)
+    velocity.x = forward.x * throttle * drive_speed * 0.48 * track_ratio
+    velocity.z = forward.z * throttle * drive_speed * 0.48 * track_ratio
+    var hydro := maxf(get_hydraulic_ratio(), 0.24)
+    arm_yaw = sin(ai_time * 0.74) * 0.46 * hydro
+    boom_angle = -0.35 + sin(ai_time * 0.88) * 0.18 * hydro
+    stick_angle = 0.30 + sin(ai_time * 1.14) * 0.22 * hydro
+    tool_angle = -0.15 + sin(ai_time * 1.31) * 0.22 * hydro
 
 func _apply_arm_pose() -> void:
     _boom.rotation = Vector3(boom_angle, arm_yaw, 0.0)
     _stick.rotation.x = stick_angle
     _tool.rotation.x = tool_angle
+    if _thumb != null:
+        _thumb.rotation.x = -0.76 if is_holding_load() else -0.05
 
 func _update_tool_motion(delta: float) -> void:
     var tip := _tool.to_global(Vector3(0.0, -0.20, -1.10))
     if not _tool_motion_ready:
         _tool_tip_last = tip
         _tool_motion_ready = true
-        _tool_tip_speed = 0.0
         return
-    _tool_tip_speed = tip.distance_to(_tool_tip_last) / maxf(delta, 0.001)
+    _tool_tip_velocity = (tip - _tool_tip_last) / maxf(delta, 0.001)
+    _tool_tip_speed = _tool_tip_velocity.length()
     _tool_tip_last = tip
+
+func _try_grip_load() -> bool:
+    var best = null
+    var best_distance := INF
+    for body in _impact_probe.get_overlapping_bodies():
+        if body == self or not body.is_in_group("physics_prop") or body.mass > 420.0:
+            continue
+        var d := body.global_position.distance_to(_grip_anchor.global_position)
+        if d < best_distance:
+            best_distance = d
+            best = body
+    if best == null:
+        return false
+    held_load = best
+    if held_load.has_method("set_held"):
+        held_load.set_held(true)
+    hud.set_context("LOAD CLAMPED // MOVE ARM TO CARRY // CLAMP TO RELEASE")
+    return true
+
+func _update_held_load() -> void:
+    if not is_holding_load():
+        held_load = null
+        return
+    held_load.global_position = _grip_anchor.global_position
+    held_load.global_basis = _grip_anchor.global_basis
+
+func _release_load(with_throw: bool) -> void:
+    if not is_holding_load():
+        held_load = null
+        return
+    var load = held_load
+    held_load = null
+    if load.has_method("set_held"):
+        load.set_held(false)
+    if with_throw and load is RigidBody3D:
+        load.linear_velocity = _tool_tip_velocity + velocity * 0.85
+        load.angular_velocity = Vector3(_tool_tip_velocity.z, 0.8, -_tool_tip_velocity.x) * 0.16
+    if hud != null:
+        hud.set_context("DIRECT BOOM // PHYSICAL BUCKET // HYDRAULIC THUMB")
 
 func _resolve_tool_impacts() -> void:
     if _impact_cooldown > 0.0:
@@ -268,10 +306,10 @@ func _resolve_tool_impacts() -> void:
     var chassis_speed := Vector3(velocity.x, 0.0, velocity.z).length()
     if chassis_speed < 0.45 and _tool_tip_speed < 1.0:
         return
-    var force := 16.0 + chassis_speed * 10.0 + minf(_tool_tip_speed, 15.0) * 5.8
-    var impact_dir := -_tool.global_basis.z
+    var force := get_tool_force()
+    var impact_dir := _tool_tip_velocity.normalized() if _tool_tip_velocity.length_squared() > 0.04 else -_tool.global_basis.z
     for body in _impact_probe.get_overlapping_bodies():
-        if body == self:
+        if body == self or body == held_load:
             continue
         if body.has_method("machine_hit"):
             body.machine_hit(force, impact_dir)
@@ -280,3 +318,24 @@ func _resolve_tool_impacts() -> void:
             var push := impact_dir * (10.0 + minf(_tool_tip_speed, 12.0)) + Vector3.UP * 4.5
             body.take_hit(push, 42.0 + minf(_tool_tip_speed, 12.0) * 1.2)
             _impact_cooldown = 0.15
+
+func _update_damage_fx() -> void:
+    if get_health_ratio() > 0.58 or _damage_fx_cooldown > 0.0:
+        return
+    _damage_fx_cooldown = 0.65 if get_health_ratio() > 0.28 else 0.32
+    var color := Color(0.30, 0.28, 0.24) if get_health_ratio() > 0.28 else Color(0.12, 0.11, 0.10)
+    ImpactFx.spawn(get_parent(), global_position + Vector3(0.75, 2.7, 0.6), Vector3.UP, color, 1.3, 5)
+    if _work_light != null and get_health_ratio() < 0.32:
+        _work_light.light_energy = 0.7 + absf(sin(Time.get_ticks_msec() * 0.012)) * 1.1
+
+func _update_telemetry() -> void:
+    if hud == null or player_driver == null or not hud.has_method("set_machine_telemetry") or _telemetry_timer > 0.0:
+        return
+    _telemetry_timer = 0.08
+    hud.set_machine_telemetry(
+        get_health_ratio(),
+        get_hydraulic_ratio(),
+        get_track_ratio(),
+        clampf(get_tool_force() / 130.0, 0.0, 1.0),
+        is_holding_load()
+    )
