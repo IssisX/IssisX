@@ -21,17 +21,15 @@ func _run() -> void:
     await get_tree().process_frame
     _freeze_gameplay()
 
-    # 01 - establish the complete industrial yard and scale hierarchy.
     anchor.global_position = Vector3(1.0, 0.0, -2.0)
     game.camera_rig.set_target(anchor)
     game.camera_rig.yaw = 0.66
     game.camera_rig.pitch = -0.36
     game.camera_rig.distance = 27.0
     game.camera_rig.height = 8.0
-    await _settle_frames(18)
-    await _capture("01_yard_overview.png")
+    await _settle_frames(12)
+    _capture("01_yard_overview.png")
 
-    # 02 - readable human-scale combat staging.
     game.player.visible = true
     game.player.global_position = Vector3(-7.0, 1.1, 8.0)
     game.player.rotation.y = -0.35
@@ -49,10 +47,9 @@ func _run() -> void:
     game.camera_rig.pitch = -0.24
     game.camera_rig.distance = 9.8
     game.camera_rig.height = 3.2
-    await _settle_frames(16)
-    await _capture("02_combat_staging.png")
+    await _settle_frames(10)
+    _capture("02_combat_staging.png")
 
-    # 03 - machine authority: player-controlled excavator with articulated tool.
     game.player.visible = false
     for enemy in get_tree().get_nodes_in_group("enemy"):
         enemy.visible = false
@@ -68,10 +65,9 @@ func _run() -> void:
     game.camera_rig.pitch = -0.30
     game.camera_rig.distance = 14.5
     game.camera_rig.height = 4.8
-    await _settle_frames(18)
-    await _capture("03_excavator_operation.png")
+    await _settle_frames(10)
+    _capture("03_excavator_operation.png")
 
-    # 04 - structural consequence: remove two supports, then let gravity resolve.
     game.structure.damage_support(0, 125.0, Vector3(1.0, 0.0, 0.25))
     game.structure.damage_support(2, 125.0, Vector3(1.0, 0.0, -0.20))
     anchor.global_position = game.structure.global_position + Vector3(0.0, 1.7, 0.0)
@@ -80,9 +76,9 @@ func _run() -> void:
     game.camera_rig.pitch = -0.26
     game.camera_rig.distance = 14.0
     game.camera_rig.height = 4.6
-    await _settle_physics_frames(42)
+    await _settle_physics_frames(36)
     await _settle_frames(8)
-    await _capture("04_structure_failure.png")
+    _capture("04_structure_failure.png")
 
     print("CAPTURE_SUITE_OK dir=", capture_dir)
     get_tree().quit(0)
@@ -103,14 +99,12 @@ func _visible_enemies() -> Array[Node]:
 func _settle_frames(count: int) -> void:
     for _i in count:
         await get_tree().process_frame
-        await RenderingServer.frame_post_draw
 
 func _settle_physics_frames(count: int) -> void:
     for _i in count:
         await get_tree().physics_frame
 
 func _capture(filename: String) -> void:
-    await RenderingServer.frame_post_draw
     var image := get_viewport().get_texture().get_image()
     var path := capture_dir.path_join(filename)
     var err := image.save_png(path)
