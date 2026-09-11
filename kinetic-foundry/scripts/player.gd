@@ -21,6 +21,7 @@ var hit_anim := 0.0
 var combo_window := 0.0
 var combo_step := 0
 var attack_side := 1.0
+var traversal_lock := 0.0
 var _rig
 
 func _ready() -> void:
@@ -54,6 +55,7 @@ func _physics_process(delta: float) -> void:
     attack_anim = maxf(0.0, attack_anim - delta)
     hit_anim = maxf(0.0, hit_anim - delta)
     combo_window = maxf(0.0, combo_window - delta)
+    traversal_lock = maxf(0.0, traversal_lock - delta)
     engage_timer = maxf(0.0, engage_timer - delta)
     if combo_window <= 0.0:
         combo_step = 0
@@ -72,15 +74,16 @@ func _physics_process(delta: float) -> void:
     if attack_anim > 0.0:
         target_speed *= 0.42
 
-    if desired.length_squared() > 0.001:
-        desired = desired.normalized()
-        velocity.x = move_toward(velocity.x, desired.x * target_speed, 32.0 * delta)
-        velocity.z = move_toward(velocity.z, desired.z * target_speed, 32.0 * delta)
-        if attack_anim <= 0.0:
-            rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), 0.22)
-    else:
-        velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
-        velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
+    if traversal_lock <= 0.0:
+        if desired.length_squared() > 0.001:
+            desired = desired.normalized()
+            velocity.x = move_toward(velocity.x, desired.x * target_speed, 32.0 * delta)
+            velocity.z = move_toward(velocity.z, desired.z * target_speed, 32.0 * delta)
+            if attack_anim <= 0.0:
+                rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), 0.22)
+        else:
+            velocity.x = move_toward(velocity.x, 0.0, 30.0 * delta)
+            velocity.z = move_toward(velocity.z, 0.0, 30.0 * delta)
 
     if not is_on_floor():
         velocity.y -= 26.0 * delta
@@ -92,7 +95,8 @@ func _physics_process(delta: float) -> void:
     if hud.consume_grab() or _keyboard_grab():
         _grab_or_throw()
     if hud.consume_use() or _keyboard_use():
-        request_machine_entry.emit(self)
+        if not _try_traversal():
+            request_machine_entry.emit(self)
 
     if held_target != null and is_instance_valid(held_target):
         _update_held_target()
@@ -101,20 +105,44 @@ func _physics_process(delta: float) -> void:
     _animate(delta)
     _update_hud()
 
-func _update_hud() -> void:
-    if hud == null:
-        return
-    if hud.has_method("set_health"):
-        hud.set_health(health / max_health)
-    if hud.has_method("set_target"):
-        hud.set_target(engaged_target)
-    if hud.has_method("set_context"):
-        if held_target != null and is_instance_valid(held_target):
-            hud.set_context("HOLDING // HIT TO HURL")
-        elif engaged_target != null and is_instance_valid(engaged_target):
-            hud.set_context("ADAPTIVE LOCK")
-        else:
-            hud.set_context("POWER // COMBAT // MACHINES")
+func _try_traversal() -> bool:
+    if traversal_lock > 0.0 or not is_on_floor() or held_target != null:
+        return false
+    var space := get_world_3d().direct_space_state
+    var forward := -global_basis.z
+    var low_from := global_position + Vector3.UP * 0.65
+    var low_to := low_from + forward * 1.35
+    var low_query := PhysicsRayQueryParameters3D.create(low_from, low_to, 2 | 8)
+    low_query.exclude = [self]
+    var low_hit := space.intersect_ray(low_query)
+    if low_hit.is_empty():
+        return false
+
+    var high_from := global_position + Vector3.UP * 1.45
+    var high_to := high_from + forward * 1.45
+    var high_query := PhysicsRayQueryParameters3D.create(high_from, high_to, 2 | 8)
+    high_query.exclude = [self]
+    var high_hit := space.intersect_ray(high_query)
+
+    if high_hit.is_empty():
+        velocity = forward * 8.8 + Vector3.UP * 6.8
+        traversal_lock = 0.34
+        if hud != null and hud.has_method("set_context"):
+            hud.set_context("VAULT")
+        return true
+
+    var chest_from := global_position + Vector3.UP * 1.72
+    var chest_to := chest_from + forward * 1.15
+    var chest_query := PhysicsRayQueryParameters3D.create(chest_from, chest_to, 2 | 8)
+    chest_query.exclude = [self]
+    var chest_hit := space.intersect_ray(chest_query)
+    if chest_hit.is_empty():
+        velocity = forward * 5.2 + Vector3.UP * 8.2
+        traversal_lock = 0.44
+        if hud != null and hud.has_method("set_context"):
+            hud.set_context("MANTLE")
+        return true
+    return false
 
 func _keyboard_axis() -> Vector2:
     var axis := Vector2.ZERO
@@ -138,7 +166,7 @@ func _keyboard_use() -> bool:
     return Input.is_physical_key_pressed(KEY_E)
 
 func _attack() -> void:
-    if attack_cooldown > 0.0:
+    if attack_cooldown > 0.0 or traversal_lock > 0.0:
         return
     attack_cooldown = 0.24 if combo_step < 2 else 0.38
     attack_anim = 0.28
@@ -187,6 +215,8 @@ func _attack() -> void:
     combo_window = 0.0
 
 func _grab_or_throw() -> void:
+    if traversal_lock > 0.0:
+        return
     if held_target != null and is_instance_valid(held_target):
         var dir: Vector3 = -global_basis.z
         held_target.set_held(false)
