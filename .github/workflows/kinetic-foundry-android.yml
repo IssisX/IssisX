@@ -1,0 +1,139 @@
+name: Kinetic Foundry Android Build
+
+on:
+  push:
+    branches:
+      - kinetic-foundry
+    paths:
+      - "kinetic-foundry/**"
+      - ".github/workflows/kinetic-foundry-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.3"
+  PROJECT_PATH: "kinetic-foundry"
+  EXPORT_NAME: "KineticFoundry-debug"
+
+jobs:
+  android-debug:
+    name: Export Android APK
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.3
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.3 export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mkdir -p "$HOME/.config"
+          if [ -d "/root/.config/godot" ]; then
+            rm -rf "$HOME/.config/godot"
+            mv /root/.config/godot "$HOME/.config/godot"
+          fi
+          if [ -d "/root/.local/share/godot/export_templates/${GODOT_VERSION}.stable" ]; then
+            rm -rf "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+            mv "/root/.local/share/godot/export_templates/${GODOT_VERSION}.stable" \
+              "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          fi
+          godot --version
+          test -d "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+
+      - name: Configure Android paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          SETTINGS="$HOME/.config/godot/editor_settings-4.3.tres"
+          mkdir -p "$(dirname "$SETTINGS")"
+          touch "$SETTINGS"
+          JAVA_PATH="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
+          if [ -d /opt/android-sdk-linux ]; then
+            SDK_PATH=/opt/android-sdk-linux
+          elif [ -d /opt/android-sdk ]; then
+            SDK_PATH=/opt/android-sdk
+          elif [ -d /root/.android ]; then
+            SDK_PATH=/root/.android
+          else
+            SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          fi
+          if ! grep -q '^export/android/java_sdk_path' "$SETTINGS"; then
+            printf '\nexport/android/java_sdk_path = "%s"\n' "$JAVA_PATH" >> "$SETTINGS"
+          fi
+          if [ -n "$SDK_PATH" ] && ! grep -q '^export/android/android_sdk_path' "$SETTINGS"; then
+            printf 'export/android/android_sdk_path = "%s"\n' "$SDK_PATH" >> "$SETTINGS"
+          fi
+          echo "JAVA_PATH=$JAVA_PATH"
+          echo "SDK_PATH=$SDK_PATH"
+
+      - name: Import and validate Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --verbose \
+            --path "$PROJECT_PATH" \
+            --editor --quit
+
+      - name: Export debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROJECT_PATH/build/android"
+          godot --headless --verbose \
+            --path "$PROJECT_PATH" \
+            --export-debug "Android" \
+            "build/android/${EXPORT_NAME}.apk"
+          test -s "$PROJECT_PATH/build/android/${EXPORT_NAME}.apk"
+
+      - name: Verify APK archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$PROJECT_PATH/build/android/${EXPORT_NAME}.apk"
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          apk = Path("kinetic-foundry/build/android/KineticFoundry-debug.apk")
+          if not apk.is_file() or apk.stat().st_size < 1_000_000:
+              raise SystemExit(f"APK missing or implausibly small: {apk}")
+          with zipfile.ZipFile(apk) as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f"APK ZIP CRC failure: {bad}")
+              names = set(zf.namelist())
+              required = {"AndroidManifest.xml", "classes.dex"}
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit(f"APK missing entries: {missing}")
+              if not any(n.startswith("lib/arm64-v8a/") for n in names):
+                  raise SystemExit("APK has no arm64-v8a native library")
+          print(f"APK_OK bytes={apk.stat().st_size}")
+          PY
+          sha256sum "$APK"
+
+      - name: Upload playable APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KineticFoundry-Android-${{ github.run_number }}
+          path: kinetic-foundry/build/android/KineticFoundry-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK as GitHub release asset
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: kinetic-foundry-build-${{ github.run_number }}
+          name: Kinetic Foundry Build ${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          files: kinetic-foundry/build/android/KineticFoundry-debug.apk
+          body: |
+            Automated Android debug build from `${{ github.sha }}`.
+            Target: Samsung Galaxy Z Fold 6 / arm64-v8a.
