@@ -3,15 +3,29 @@ extends Node3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
 const SupportScript = preload("res://scripts/support.gd")
+const ImpactFx = preload("res://scripts/impact_fx.gd")
+
+signal structure_collapsed
 
 var support_health := [100.0, 100.0, 100.0, 100.0]
 var supports: Array[StaticBody3D] = []
+var support_meshes: Array[MeshInstance3D] = []
 var deck: RigidBody3D
 var collapsed := false
+var collapse_age := 0.0
+var _aftermath_spawned := false
 
 func _ready() -> void:
     add_to_group("structure")
     _build_frame()
+
+func _physics_process(delta: float) -> void:
+    if not collapsed:
+        return
+    collapse_age += delta
+    if collapse_age > 0.18 and not _aftermath_spawned:
+        _aftermath_spawned = true
+        _spawn_aftermath()
 
 func _build_frame() -> void:
     var positions := [
@@ -116,14 +130,14 @@ func _make_support(index: int, pos: Vector3) -> StaticBody3D:
     support.set("frame", self)
     add_child(support)
 
-    support.add_child(
-        GeomUtil.box_mesh(
-            Vector3(0.72, 4.6, 0.72),
-            Color(0.39, 0.33, 0.20),
-            0.80,
-            0.30
-        )
+    var column := GeomUtil.box_mesh(
+        Vector3(0.72, 4.6, 0.72),
+        Color(0.39, 0.33, 0.20),
+        0.80,
+        0.30
     )
+    support.add_child(column)
+    support_meshes.append(column)
     GeomUtil.add_box_collision(support, Vector3(0.72, 4.6, 0.72))
 
     var foot := GeomUtil.box_mesh(
@@ -151,15 +165,38 @@ func damage_support(index: int, amount: float, direction: Vector3) -> void:
         return
     if support_health[index] <= 0.0:
         return
-    support_health[index] -= amount
+    support_health[index] = maxf(0.0, support_health[index] - amount)
     var support := supports[index]
     if is_instance_valid(support):
         support.rotation.z += direction.x * amount * 0.0009
         support.rotation.x -= direction.z * amount * 0.0009
+    _update_support_material(index)
+    ImpactFx.spawn(
+        get_parent(),
+        supports[index].global_position + Vector3.UP * 1.1 if is_instance_valid(supports[index]) else global_position,
+        direction,
+        Color(0.92, 0.56, 0.12),
+        clampf(amount / 22.0, 0.8, 3.2),
+        8
+    )
     if support_health[index] <= 0.0:
         _break_support(index, direction)
     _apply_pre_failure_pose()
     _evaluate_failure()
+
+func _update_support_material(index: int) -> void:
+    if index < 0 or index >= support_meshes.size():
+        return
+    var mesh := support_meshes[index]
+    if not is_instance_valid(mesh):
+        return
+    var ratio := support_health[index] / 100.0
+    var color := Color(0.39, 0.33, 0.20)
+    if ratio < 0.70:
+        color = Color(0.48, 0.30, 0.12)
+    if ratio < 0.35:
+        color = Color(0.56, 0.18, 0.07)
+    mesh.material_override = GeomUtil.material(color, 0.88, 0.32)
 
 func _apply_pre_failure_pose() -> void:
     if collapsed or deck == null:
@@ -198,10 +235,8 @@ func _break_support(index: int, direction: Vector3) -> void:
         )
     )
     GeomUtil.add_box_collision(debris, Vector3(0.72, 4.6, 0.72))
-    debris.apply_central_impulse(
-        direction.normalized() * 2200.0
-        + Vector3.UP * 520.0
-    )
+    debris.apply_central_impulse(direction.normalized() * 2200.0 + Vector3.UP * 520.0)
+    debris.apply_torque_impulse(Vector3(direction.z, 0.6, -direction.x) * 900.0)
 
 func _evaluate_failure() -> void:
     if collapsed:
@@ -212,6 +247,32 @@ func _evaluate_failure() -> void:
             alive += 1
     if alive <= 2:
         collapsed = true
+        collapse_age = 0.0
         deck.freeze = false
         deck.apply_torque_impulse(Vector3(4200.0, 900.0, -3600.0))
         deck.apply_central_impulse(Vector3(220.0, -180.0, -120.0))
+        ImpactFx.spawn(get_parent(), deck.global_position, Vector3.UP, Color(0.72, 0.48, 0.20), 5.0, 18)
+        structure_collapsed.emit()
+
+func _spawn_aftermath() -> void:
+    var pieces := [
+        [Vector3(-3.8, 4.8, -2.7), Vector3(2.8, 0.18, 0.18), 90.0],
+        [Vector3(3.6, 4.9, 2.7), Vector3(3.2, 0.18, 0.18), 95.0],
+        [Vector3(-1.4, 4.7, 2.6), Vector3(0.18, 0.18, 2.3), 70.0],
+        [Vector3(1.9, 4.75, -2.6), Vector3(0.18, 0.18, 2.7), 72.0],
+        [Vector3(-2.4, 4.4, 0.4), Vector3(1.6, 0.28, 0.42), 120.0],
+        [Vector3(2.8, 4.5, -0.7), Vector3(1.9, 0.24, 0.34), 110.0]
+    ]
+    for i in pieces.size():
+        var entry: Array = pieces[i]
+        var body := RigidBody3D.new()
+        body.position = entry[0]
+        body.mass = entry[2]
+        body.collision_layer = 8
+        body.collision_mask = 1 | 2 | 4 | 8
+        add_child(body)
+        body.add_child(GeomUtil.box_mesh(entry[1], Color(0.27, 0.25, 0.20), 0.92, 0.31))
+        GeomUtil.add_box_collision(body, entry[1])
+        var side := -1.0 if i % 2 == 0 else 1.0
+        body.apply_central_impulse(Vector3(side * (120.0 + i * 18.0), 80.0 + i * 24.0, (i - 2) * 42.0))
+        body.apply_torque_impulse(Vector3(180.0, side * 260.0, 140.0))
