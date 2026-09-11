@@ -1,6 +1,9 @@
 class_name StructuralFrame
 extends Node3D
 
+const GeomUtil = preload("res://scripts/geom.gd")
+const SupportScript = preload("res://scripts/support.gd")
+
 var support_health := [100.0, 100.0, 100.0, 100.0]
 var supports: Array[StaticBody3D] = []
 var deck: RigidBody3D
@@ -29,19 +32,19 @@ func _build_frame() -> void:
     deck.collision_mask = 1 | 2 | 4 | 8
     add_child(deck)
     deck.add_child(
-        Geom.box_mesh(
+        GeomUtil.box_mesh(
             Vector3(9.4, 0.48, 6.0),
             Color(0.22, 0.23, 0.21),
             0.88,
             0.22
         )
     )
-    Geom.add_box_collision(
+    GeomUtil.add_box_collision(
         deck,
         Vector3(9.4, 0.48, 6.0)
     )
     for z in [-2.7, 2.7]:
-        var rail := Geom.box_mesh(
+        var rail := GeomUtil.box_mesh(
             Vector3(9.4, 0.16, 0.16),
             Color(0.48, 0.48, 0.43),
             0.80,
@@ -50,38 +53,31 @@ func _build_frame() -> void:
         rail.position = Vector3(0.0, 0.72, z)
         deck.add_child(rail)
 
-func _make_support(
-        index: int,
-        pos: Vector3
-) -> StaticBody3D:
+func _make_support(index: int, pos: Vector3) -> StaticBody3D:
     var support := StaticBody3D.new()
     support.name = "Support_%d" % index
     support.position = pos
     support.collision_layer = 8
     support.collision_mask = 1 | 2 | 4
     support.set_meta("support_index", index)
-    support.set_script(preload("res://scripts/support.gd"))
+    support.set_script(SupportScript)
     support.set("frame", self)
     add_child(support)
     support.add_child(
-        Geom.box_mesh(
+        GeomUtil.box_mesh(
             Vector3(0.62, 4.6, 0.62),
             Color(0.43, 0.38, 0.29),
             0.78,
             0.26
         )
     )
-    Geom.add_box_collision(
+    GeomUtil.add_box_collision(
         support,
         Vector3(0.62, 4.6, 0.62)
     )
     return support
 
-func damage_support(
-        index: int,
-        amount: float,
-        direction: Vector3
-) -> void:
+func damage_support(index: int, amount: float, direction: Vector3) -> void:
     if index < 0 or index >= support_health.size():
         return
     if support_health[index] <= 0.0:
@@ -107,14 +103,14 @@ func _break_support(index: int, direction: Vector3) -> void:
     debris.collision_mask = 1 | 2 | 4 | 8
     add_child(debris)
     debris.add_child(
-        Geom.box_mesh(
+        GeomUtil.box_mesh(
             Vector3(0.62, 4.6, 0.62),
             Color(0.34, 0.30, 0.23),
             0.90,
             0.24
         )
     )
-    Geom.add_box_collision(
+    GeomUtil.add_box_collision(
         debris,
         Vector3(0.62, 4.6, 0.62)
     )
