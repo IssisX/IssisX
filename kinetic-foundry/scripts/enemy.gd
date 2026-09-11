@@ -1,6 +1,8 @@
 class_name FoundryEnemy
 extends CharacterBody3D
 
+const GeomUtil = preload("res://scripts/geom.gd")
+
 var target: Node3D
 var health := 100.0
 var speed := 3.7
@@ -16,32 +18,32 @@ func _ready() -> void:
     add_to_group("enemy")
     collision_layer = 4
     collision_mask = 1 | 2 | 8
-    Geom.add_capsule_collision(self, 0.42, 1.70)
+    GeomUtil.add_capsule_collision(self, 0.42, 1.70)
     _visual = Node3D.new()
     add_child(_visual)
     _build_visual()
 
 func _build_visual() -> void:
-    var torso := Geom.box_mesh(
+    var torso := GeomUtil.box_mesh(
         Vector3(0.74, 0.88, 0.38),
         Color(0.30, 0.33, 0.30)
     )
     torso.position.y = 1.18
     _visual.add_child(torso)
-    var head := Geom.sphere_mesh(
+    var head := GeomUtil.sphere_mesh(
         0.25,
         Color(0.56, 0.44, 0.36)
     )
     head.position.y = 1.88
     _visual.add_child(head)
     for side in [-1.0, 1.0]:
-        var leg := Geom.box_mesh(
+        var leg := GeomUtil.box_mesh(
             Vector3(0.23, 0.78, 0.25),
             Color(0.12, 0.13, 0.12)
         )
         leg.position = Vector3(side * 0.20, 0.40, 0.0)
         _visual.add_child(leg)
-        var arm := Geom.box_mesh(
+        var arm := GeomUtil.box_mesh(
             Vector3(0.20, 0.72, 0.22),
             Color(0.27, 0.29, 0.27)
         )
