@@ -1,13 +1,15 @@
 class_name Excavator
 extends CharacterBody3D
 
-signal player_entered(machine: Excavator)
-signal player_exited(machine: Excavator)
+const GeomUtil = preload("res://scripts/geom.gd")
+
+signal player_entered(machine)
+signal player_exited(machine)
 
 var player_driver: Node3D
 var enemy_driver: Node3D
-var hud: MobileHud
-var camera_rig: CameraRig
+var hud
+var camera_rig
 
 var drive_speed := 7.0
 var turn_speed := 1.15
@@ -27,16 +29,13 @@ func _ready() -> void:
     add_to_group("machine")
     collision_layer = 2
     collision_mask = 1 | 4 | 8
-    Geom.add_box_collision(
+    GeomUtil.add_box_collision(
         self,
         Vector3(2.75, 1.25, 4.2)
     )
     _build_visual()
 
-func configure(
-        controls: MobileHud,
-        camera: CameraRig
-) -> void:
+func configure(controls, camera) -> void:
     hud = controls
     camera_rig = camera
 
@@ -87,7 +86,7 @@ func exit_player() -> void:
     player_exited.emit(self)
 
 func _build_visual() -> void:
-    var chassis := Geom.box_mesh(
+    var chassis := GeomUtil.box_mesh(
         Vector3(2.7, 1.1, 4.1),
         Color(0.82, 0.52, 0.08),
         0.62,
@@ -96,7 +95,7 @@ func _build_visual() -> void:
     chassis.position.y = 1.05
     add_child(chassis)
     for side in [-1.0, 1.0]:
-        var track := Geom.box_mesh(
+        var track := GeomUtil.box_mesh(
             Vector3(0.62, 0.72, 4.35),
             Color(0.07, 0.08, 0.07),
             0.94,
@@ -104,7 +103,7 @@ func _build_visual() -> void:
         )
         track.position = Vector3(side * 1.42, 0.56, 0.0)
         add_child(track)
-    var cab := Geom.box_mesh(
+    var cab := GeomUtil.box_mesh(
         Vector3(1.55, 1.75, 1.70),
         Color(0.17, 0.19, 0.18),
         0.52,
@@ -115,7 +114,7 @@ func _build_visual() -> void:
     _boom = Node3D.new()
     _boom.position = Vector3(0.55, 2.15, -1.05)
     add_child(_boom)
-    var boom_mesh := Geom.box_mesh(
+    var boom_mesh := GeomUtil.box_mesh(
         Vector3(0.52, 0.58, 4.5),
         Color(0.86, 0.55, 0.08),
         0.60,
@@ -126,7 +125,7 @@ func _build_visual() -> void:
     _stick = Node3D.new()
     _stick.position = Vector3(0.0, 0.0, -4.1)
     _boom.add_child(_stick)
-    var stick_mesh := Geom.box_mesh(
+    var stick_mesh := GeomUtil.box_mesh(
         Vector3(0.42, 0.50, 3.4),
         Color(0.86, 0.55, 0.08),
         0.60,
@@ -137,7 +136,7 @@ func _build_visual() -> void:
     _tool = Node3D.new()
     _tool.position = Vector3(0.0, 0.0, -3.1)
     _stick.add_child(_tool)
-    var bucket := Geom.box_mesh(
+    var bucket := GeomUtil.box_mesh(
         Vector3(1.75, 1.05, 1.22),
         Color(0.30, 0.31, 0.28),
         0.82,
