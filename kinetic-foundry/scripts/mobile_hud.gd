@@ -18,11 +18,21 @@ var _health_ratio := 1.0
 var _damage_flash := 0.0
 var _target
 var _context_text := "POWER // COMBAT // MACHINES"
+var _objective_title := "BREAK THE YARD CREW"
+var _objective_detail := "CUT THE CREW DOWN UNTIL THE MACHINE IS EXPOSED"
+var _objective_progress := 0.0
+var _machine_integrity := 1.0
+var _machine_hydraulics := 1.0
+var _machine_tracks := 1.0
+var _machine_force := 0.0
+var _machine_holding := false
 
 var _action_labels: Array[Label] = []
 var _mode_label: Label
 var _title_label: Label
 var _context_label: Label
+var _objective_title_label: Label
+var _objective_detail_label: Label
 
 const STICK_R := 105.0
 const DEAD_R := 18.0
@@ -33,26 +43,6 @@ func _ready() -> void:
     set_process(true)
     _build_labels()
 
-func _build_labels() -> void:
-    _title_label = _label(21, Color(0.95, 0.78, 0.39, 0.98))
-    _title_label.text = "KINETIC FOUNDRY"
-    add_child(_title_label)
-
-    _mode_label = _label(16, Color(0.76, 0.80, 0.77, 0.94))
-    add_child(_mode_label)
-
-    _context_label = _label(17, Color(0.89, 0.88, 0.81, 0.92))
-    _context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    add_child(_context_label)
-
-    for _i in 3:
-        var label := _label(18, Color(0.98, 0.96, 0.88, 0.98))
-        label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-        label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-        add_child(label)
-        _action_labels.append(label)
-    _refresh_labels()
-
 func _label(size_px: int, color: Color) -> Label:
     var label := Label.new()
     label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -62,6 +52,29 @@ func _label(size_px: int, color: Color) -> Label:
     label.add_theme_constant_override("shadow_offset_x", 2)
     label.add_theme_constant_override("shadow_offset_y", 2)
     return label
+
+func _build_labels() -> void:
+    _title_label = _label(21, Color(0.95, 0.78, 0.39, 0.98))
+    _title_label.text = "KINETIC FOUNDRY"
+    add_child(_title_label)
+    _mode_label = _label(16, Color(0.76, 0.80, 0.77, 0.94))
+    add_child(_mode_label)
+    _context_label = _label(17, Color(0.89, 0.88, 0.81, 0.92))
+    _context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    add_child(_context_label)
+    _objective_title_label = _label(18, Color(0.96, 0.70, 0.25, 0.98))
+    _objective_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    add_child(_objective_title_label)
+    _objective_detail_label = _label(13, Color(0.77, 0.79, 0.75, 0.93))
+    _objective_detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    add_child(_objective_detail_label)
+    for _i in 3:
+        var label := _label(18, Color(0.98, 0.96, 0.88, 0.98))
+        label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+        add_child(label)
+        _action_labels.append(label)
+    _refresh_labels()
 
 func set_machine_mode(enabled: bool) -> void:
     _machine_mode = enabled
@@ -76,6 +89,22 @@ func set_target(node) -> void:
 func set_context(text: String) -> void:
     _context_text = text
 
+func set_objective(title: String, detail: String) -> void:
+    _objective_title = title
+    _objective_detail = detail
+
+func set_objective_progress(value: float) -> void:
+    _objective_progress = clampf(value, 0.0, 1.0)
+
+func set_machine_telemetry(integrity: float, hydraulics: float, tracks: float, force_ratio: float, holding: bool) -> void:
+    _machine_integrity = clampf(integrity, 0.0, 1.0)
+    _machine_hydraulics = clampf(hydraulics, 0.0, 1.0)
+    _machine_tracks = clampf(tracks, 0.0, 1.0)
+    _machine_force = clampf(force_ratio, 0.0, 1.0)
+    _machine_holding = holding
+    if _machine_mode and _action_labels.size() >= 2:
+        _action_labels[1].text = "RELEASE" if holding else "CLAMP"
+
 func flash_damage() -> void:
     _damage_flash = 1.0
 
@@ -84,9 +113,9 @@ func _refresh_labels() -> void:
         return
     if _machine_mode:
         _action_labels[0].text = "SMASH"
-        _action_labels[1].text = "CURL"
+        _action_labels[1].text = "RELEASE" if _machine_holding else "CLAMP"
         _action_labels[2].text = "EXIT"
-        _mode_label.text = "EXCAVATOR // DIRECT ARM"
+        _mode_label.text = "EXCAVATOR // LOAD + FORCE AUTHORITY"
     else:
         _action_labels[0].text = "HIT"
         _action_labels[1].text = "GRAB"
@@ -96,16 +125,19 @@ func _refresh_labels() -> void:
 func _process(delta: float) -> void:
     _view_size = get_viewport_rect().size
     _damage_flash = maxf(0.0, _damage_flash - delta * 3.8)
-
     _title_label.position = Vector2(42.0, 30.0)
     _title_label.size = Vector2(290.0, 28.0)
     _mode_label.position = Vector2(42.0, 58.0)
-    _mode_label.size = Vector2(320.0, 24.0)
-
+    _mode_label.size = Vector2(370.0, 24.0)
     _context_label.text = _context_text
-    _context_label.position = Vector2(_view_size.x * 0.5 - 220.0, _view_size.y - 62.0)
-    _context_label.size = Vector2(440.0, 34.0)
-
+    _context_label.position = Vector2(_view_size.x * 0.5 - 260.0, _view_size.y - 58.0)
+    _context_label.size = Vector2(520.0, 32.0)
+    _objective_title_label.text = _objective_title
+    _objective_title_label.position = Vector2(_view_size.x * 0.5 - 260.0, 25.0)
+    _objective_title_label.size = Vector2(520.0, 28.0)
+    _objective_detail_label.text = _objective_detail
+    _objective_detail_label.position = Vector2(_view_size.x * 0.5 - 330.0, 52.0)
+    _objective_detail_label.size = Vector2(660.0, 24.0)
     for i in mini(3, _action_labels.size()):
         var rect := _button_rect(i)
         _action_labels[i].position = rect.position
@@ -163,10 +195,7 @@ func _drag(event: InputEventScreenDrag) -> void:
     if event.index == _move_touch:
         _move_pos = event.position
         var delta := _move_pos - _move_origin
-        if delta.length() < DEAD_R:
-            move_axis = Vector2.ZERO
-        else:
-            move_axis = delta.limit_length(STICK_R) / STICK_R
+        move_axis = Vector2.ZERO if delta.length() < DEAD_R else delta.limit_length(STICK_R) / STICK_R
     elif event.index == _look_touch:
         look_accum += event.relative
 
@@ -197,29 +226,50 @@ func _button_rect(index: int) -> Rect2:
 
 func _draw() -> void:
     _draw_status_panel()
+    _draw_objective_panel()
+    if _machine_mode:
+        _draw_machine_panel()
     _draw_move_zone()
     _draw_action_button(0, Color(0.74, 0.20, 0.075, 0.86))
     _draw_action_button(1, Color(0.76, 0.48, 0.08, 0.82))
     _draw_action_button(2, Color(0.10, 0.42, 0.48, 0.82))
     _draw_target_bracket()
     if _damage_flash > 0.0:
-        draw_rect(
-            Rect2(Vector2.ZERO, _view_size),
-            Color(0.70, 0.045, 0.02, 0.10 * _damage_flash),
-            false,
-            12.0
-        )
+        draw_rect(Rect2(Vector2.ZERO, _view_size), Color(0.70, 0.045, 0.02, 0.10 * _damage_flash), false, 12.0)
 
 func _draw_status_panel() -> void:
-    var panel := Rect2(Vector2(26.0, 20.0), Vector2(330.0, 94.0))
-    _rounded(panel, Color(0.018, 0.024, 0.025, 0.78), Color(0.47, 0.39, 0.22, 0.72), 2.0)
+    var panel := Rect2(Vector2(26.0, 20.0), Vector2(350.0, 94.0))
+    _rounded(panel, Color(0.018, 0.024, 0.025, 0.80), Color(0.47, 0.39, 0.22, 0.72), 2.0)
     var bar_bg := Rect2(Vector2(42.0, 88.0), Vector2(272.0, 10.0))
     draw_rect(bar_bg, Color(0.08, 0.09, 0.085, 0.90))
-    var hp_color := Color(0.82, 0.53, 0.10, 0.94)
-    if _health_ratio < 0.34:
-        hp_color = Color(0.82, 0.16, 0.06, 0.96)
+    var hp_color := Color(0.82, 0.53, 0.10, 0.94) if _health_ratio >= 0.34 else Color(0.82, 0.16, 0.06, 0.96)
     draw_rect(Rect2(bar_bg.position, Vector2(bar_bg.size.x * _health_ratio, bar_bg.size.y)), hp_color)
-    draw_string(ThemeDB.fallback_font, Vector2(320.0, 98.0), "%d%%" % int(_health_ratio * 100.0), HORIZONTAL_ALIGNMENT_RIGHT, 28.0, 13, Color(0.88, 0.86, 0.78, 0.90))
+    draw_string(ThemeDB.fallback_font, Vector2(342.0, 98.0), "%d%%" % int(_health_ratio * 100.0), HORIZONTAL_ALIGNMENT_RIGHT, 30.0, 13, Color(0.88, 0.86, 0.78, 0.90))
+
+func _draw_objective_panel() -> void:
+    var x := _view_size.x * 0.5 - 350.0
+    var panel := Rect2(Vector2(x, 16.0), Vector2(700.0, 82.0))
+    _rounded(panel, Color(0.015, 0.020, 0.020, 0.68), Color(0.35, 0.32, 0.22, 0.62), 1.5)
+    var bg := Rect2(Vector2(x + 22.0, 78.0), Vector2(656.0, 5.0))
+    draw_rect(bg, Color(0.07, 0.075, 0.07, 0.86))
+    draw_rect(Rect2(bg.position, Vector2(bg.size.x * _objective_progress, bg.size.y)), Color(0.88, 0.55, 0.10, 0.92))
+
+func _draw_machine_panel() -> void:
+    var panel := Rect2(Vector2(26.0, 130.0), Vector2(350.0, 128.0))
+    _rounded(panel, Color(0.018, 0.024, 0.025, 0.80), Color(0.46, 0.36, 0.16, 0.70), 2.0)
+    draw_string(ThemeDB.fallback_font, Vector2(42.0, 153.0), "MACHINE STATE", HORIZONTAL_ALIGNMENT_LEFT, 160.0, 14, Color(0.93, 0.72, 0.28))
+    _meter(Vector2(42.0, 168.0), "INT", _machine_integrity, Color(0.84, 0.43, 0.08))
+    _meter(Vector2(42.0, 193.0), "HYD", _machine_hydraulics, Color(0.18, 0.58, 0.65))
+    _meter(Vector2(42.0, 218.0), "TRK", _machine_tracks, Color(0.62, 0.60, 0.49))
+    _meter(Vector2(42.0, 243.0), "FRC", _machine_force, Color(0.94, 0.64, 0.12))
+    var clamp_text := "CLAMP: LOAD" if _machine_holding else "CLAMP: OPEN"
+    draw_string(ThemeDB.fallback_font, Vector2(257.0, 153.0), clamp_text, HORIZONTAL_ALIGNMENT_LEFT, 86.0, 12, Color(0.83, 0.84, 0.78))
+
+func _meter(pos: Vector2, name: String, value: float, color: Color) -> void:
+    draw_string(ThemeDB.fallback_font, pos + Vector2(0.0, 11.0), name, HORIZONTAL_ALIGNMENT_LEFT, 36.0, 11, Color(0.76, 0.78, 0.73))
+    var bg := Rect2(pos + Vector2(42.0, 2.0), Vector2(245.0, 8.0))
+    draw_rect(bg, Color(0.07, 0.075, 0.07, 0.92))
+    draw_rect(Rect2(bg.position, Vector2(bg.size.x * value, bg.size.y)), color)
 
 func _draw_move_zone() -> void:
     var center := Vector2(142.0, _view_size.y - 142.0)
