@@ -6,16 +6,22 @@ const ExcavatorScene = preload("res://scripts/excavator.gd")
 const StructureScene = preload("res://scripts/structure.gd")
 const CameraRigScene = preload("res://scripts/camera_rig.gd")
 const HudScene = preload("res://scripts/mobile_hud.gd")
+const CaptureRunnerScene = preload("res://scripts/visual_capture.gd")
 
 var hud: MobileHud
 var camera_rig: CameraRig
 var player: FoundryPlayer
 var excavator: Excavator
+var structure: StructuralFrame
 
 func _ready() -> void:
     _build_environment()
     _build_yard()
     _build_gameplay()
+    if "--capture" in OS.get_cmdline_user_args():
+        var capture_runner := CaptureRunnerScene.new()
+        add_child(capture_runner)
+        capture_runner.begin(self)
 
 func _build_environment() -> void:
     var world := WorldEnvironment.new()
@@ -95,7 +101,7 @@ func _build_gameplay() -> void:
     _spawn_enemy(Vector3(-3.0, 1.0, 5.0))
     _spawn_enemy(Vector3(1.0, 1.0, 10.0))
     _spawn_enemy(Vector3(8.0, 1.0, 7.0))
-    var structure := StructureScene.new()
+    structure = StructureScene.new()
     structure.position = Vector3(11.0, 0.0, -14.0)
     add_child(structure)
 
