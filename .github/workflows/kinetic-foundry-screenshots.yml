@@ -4,7 +4,7 @@ on:
   push:
     branches: [kinetic-foundry]
     paths:
-      - "kinetic-foundry/**"
+      - "kinetic-foundry/.capture-request"
       - ".github/workflows/kinetic-foundry-screenshots.yml"
   workflow_dispatch:
 
