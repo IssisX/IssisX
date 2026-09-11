@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 const GeomUtil = preload("res://scripts/geom.gd")
 const HumanoidRigScript = preload("res://scripts/humanoid_rig.gd")
+const ImpactFx = preload("res://scripts/impact_fx.gd")
 
 var target: Node3D
 var health := 100.0
@@ -41,11 +42,14 @@ func take_hit(force: Vector3, damage: float) -> void:
     attack_windup = 0.0
     attack_landed = false
     velocity += force
+    var fx_dir := force.normalized() if force.length_squared() > 0.001 else Vector3.UP
+    ImpactFx.spawn(get_parent(), global_position + Vector3.UP * 1.15, fx_dir, Color(0.86, 0.48, 0.16), clampf(damage / 18.0, 0.8, 3.0), 8)
     if health <= 0.0:
         dead = true
         collision_layer = 0
         collision_mask = 1 | 8
         velocity += force * 0.75
+        ImpactFx.spawn(get_parent(), global_position + Vector3.UP * 0.9, fx_dir, Color(0.55, 0.34, 0.18), 2.6, 11)
 
 func receive_hazard_hit(damage: float, impulse: Vector3) -> void:
     take_hit(impulse, damage)
