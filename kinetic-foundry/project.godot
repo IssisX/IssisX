@@ -10,6 +10,7 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 [autoload]
 WorldExtension="*res://scripts/world_extension.gd"
 PopulationDetail="*res://scripts/population_detail.gd"
+AmbientActivity="*res://scripts/ambient_activity.gd"
 
 [display/window]
 size/viewport_width=1920
