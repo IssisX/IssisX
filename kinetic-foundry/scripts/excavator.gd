@@ -173,14 +173,14 @@ func _physics_process(delta: float) -> void:
 func _player_control(delta: float) -> void:
     if hud == null or camera_rig == null:
         return
-    var axis := hud.move_axis
-    var throttle := -axis.y
-    var steering := axis.x
-    var forward := -global_basis.z
+    var axis: Vector2 = hud.move_axis
+    var throttle: float = -axis.y
+    var steering: float = axis.x
+    var forward: Vector3 = -global_basis.z
     velocity.x = forward.x * throttle * drive_speed
     velocity.z = forward.z * throttle * drive_speed
     rotation.y -= steering * turn_speed * delta
-    var look := hud.consume_look()
+    var look: Vector2 = hud.consume_look()
     arm_yaw -= look.x * 0.0032
     boom_angle += look.y * 0.0026
     arm_yaw = clamp(arm_yaw, -1.25, 1.25)
@@ -204,13 +204,13 @@ func _enemy_control(delta: float) -> void:
     var target := get_tree().get_first_node_in_group("player")
     if target == null:
         return
-    var to_target := target.global_position - global_position
+    var to_target: Vector3 = target.global_position - global_position
     to_target.y = 0.0
     if to_target.length() > 0.1:
-        var desired := atan2(-to_target.x, -to_target.z)
+        var desired: float = atan2(-to_target.x, -to_target.z)
         rotation.y = lerp_angle(rotation.y, desired, 0.018)
-    var forward := -global_basis.z
-    var throttle := 1.0 if to_target.length() > 7.0 else 0.0
+    var forward: Vector3 = -global_basis.z
+    var throttle: float = 1.0 if to_target.length() > 7.0 else 0.0
     velocity.x = forward.x * throttle * drive_speed * 0.48
     velocity.z = forward.z * throttle * drive_speed * 0.48
     arm_yaw = sin(ai_time * 0.74) * 0.46
@@ -233,11 +233,11 @@ func _resolve_tool_impacts() -> void:
         if body == self:
             continue
         if body.has_method("machine_hit"):
-            var dir := -_tool.global_basis.z
+            var dir: Vector3 = -_tool.global_basis.z
             body.machine_hit(force, dir)
             _impact_cooldown = 0.16
         elif body.has_method("take_hit"):
-            var push := -_tool.global_basis.z * 15.0
+            var push: Vector3 = -_tool.global_basis.z * 15.0
             push += Vector3.UP * 4.5
             body.take_hit(push, 55.0)
             _impact_cooldown = 0.16
