@@ -34,35 +34,98 @@ func receive_enemy_hit(damage: float) -> void:
     health = maxf(0.0, health - damage)
 
 func _build_visual() -> void:
+    var pelvis := GeomUtil.box_mesh(
+        Vector3(0.72, 0.38, 0.42),
+        Color(0.105, 0.115, 0.108),
+        0.86,
+        0.02
+    )
+    pelvis.position.y = 0.90
+    _visual.add_child(pelvis)
+
     var torso := GeomUtil.box_mesh(
-        Vector3(0.86, 1.02, 0.48),
-        Color(0.20, 0.23, 0.22),
+        Vector3(0.88, 0.92, 0.50),
+        Color(0.18, 0.21, 0.20),
         0.72,
         0.08
     )
-    torso.position.y = 1.24
+    torso.position.y = 1.38
     _visual.add_child(torso)
+
+    var vest := GeomUtil.box_mesh(
+        Vector3(0.74, 0.46, 0.08),
+        Color(0.48, 0.30, 0.08),
+        0.82,
+        0.05
+    )
+    vest.position = Vector3(0.0, 1.43, -0.29)
+    _visual.add_child(vest)
+
+    var neck := GeomUtil.capsule_mesh(
+        0.11,
+        0.28,
+        Color(0.52, 0.39, 0.30)
+    )
+    neck.position.y = 1.92
+    _visual.add_child(neck)
+
     var head := GeomUtil.sphere_mesh(
         0.27,
-        Color(0.64, 0.48, 0.37)
+        Color(0.62, 0.46, 0.35)
     )
-    head.position.y = 2.00
+    head.position.y = 2.10
     _visual.add_child(head)
+
+    var helmet := GeomUtil.box_mesh(
+        Vector3(0.55, 0.18, 0.56),
+        Color(0.15, 0.17, 0.16),
+        0.66,
+        0.10
+    )
+    helmet.position = Vector3(0.0, 2.28, 0.0)
+    _visual.add_child(helmet)
+
     for side in [-1.0, 1.0]:
-        var arm := GeomUtil.box_mesh(
-            Vector3(0.25, 0.84, 0.27),
-            Color(0.25, 0.28, 0.26)
+        var shoulder := GeomUtil.sphere_mesh(
+            0.20,
+            Color(0.24, 0.27, 0.25)
+        )
+        shoulder.position = Vector3(side * 0.55, 1.62, 0.0)
+        _visual.add_child(shoulder)
+
+        var arm := GeomUtil.capsule_mesh(
+            0.13,
+            0.82,
+            Color(0.23, 0.26, 0.24)
         )
         arm.name = "Arm"
-        arm.position = Vector3(side * 0.56, 1.28, 0.0)
+        arm.position = Vector3(side * 0.56, 1.22, 0.0)
         _visual.add_child(arm)
-        var leg := GeomUtil.box_mesh(
-            Vector3(0.29, 0.88, 0.30),
-            Color(0.10, 0.11, 0.10)
+
+        var glove := GeomUtil.sphere_mesh(
+            0.15,
+            Color(0.07, 0.075, 0.07)
+        )
+        glove.position = Vector3(side * 0.56, 0.79, 0.0)
+        _visual.add_child(glove)
+
+        var leg := GeomUtil.capsule_mesh(
+            0.16,
+            0.92,
+            Color(0.085, 0.09, 0.085)
         )
         leg.name = "Leg"
-        leg.position = Vector3(side * 0.23, 0.44, 0.0)
+        leg.position = Vector3(side * 0.23, 0.48, 0.0)
         _visual.add_child(leg)
+
+        var boot := GeomUtil.box_mesh(
+            Vector3(0.30, 0.20, 0.48),
+            Color(0.055, 0.06, 0.055),
+            0.96,
+            0.04
+        )
+        boot.position = Vector3(side * 0.23, 0.10, -0.08)
+        _visual.add_child(boot)
 
 func _physics_process(delta: float) -> void:
     if hud == null or camera_rig == null:
