@@ -61,27 +61,36 @@ func _on_mission_complete() -> void:
     _save_state()
     var hud := _find_hud()
     if hud != null:
-        hud.set_context("UPGRADE ACQUIRED // CHARACTER %d // EQUIPMENT %d" % [character_tier, equipment_tier])
+        hud.set_context("UPGRADE // BODY %d // GEAR %d // NEW PHYSICAL AUTHORITY" % [character_tier, equipment_tier])
 
 func _apply_player_progression() -> void:
     if _player == null or not is_instance_valid(_player):
         return
-    var base_max_health := 180.0
-    var base_speed := 7.4
-    var base_sprint := 10.2
-    _player.max_health = base_max_health + equipment_tier * 24.0 + character_tier * 8.0
+
+    _player.max_health = 180.0 + equipment_tier * 24.0 + character_tier * 8.0
     _player.health = minf(_player.health + equipment_tier * 10.0, _player.max_health)
-    _player.speed = base_speed + character_tier * 0.28
-    _player.sprint_speed = base_sprint + character_tier * 0.42
+    _player.speed = 7.4 + character_tier * 0.28
+    _player.sprint_speed = 10.2 + character_tier * 0.42
+
+    # Character progression changes what the body can physically dominate.
+    _player.grab_mass_limit = 110.0 + character_tier * 42.0
+    _player.melee_force_multiplier = 1.0 + character_tier * 0.11
+    _player.throw_force_multiplier = 1.0 + character_tier * 0.13
+    _player.machine_climb_range = 5.8 + character_tier * 0.32
+
+    # Equipment progression improves survival and industrial protection.
+    _player.damage_reduction = clampf(equipment_tier * 0.055, 0.0, 0.42)
+    _player.hazard_reduction = clampf(equipment_tier * 0.075, 0.0, 0.55)
+
     _player.set_meta("character_tier", character_tier)
     _player.set_meta("equipment_tier", equipment_tier)
+    _player.set_meta("physical_authority", character_tier + equipment_tier)
 
 func _find_hud():
     var scene := get_tree().current_scene
     if scene == null:
         return null
-    var value = scene.get("hud")
-    return value
+    return scene.get("hud")
 
 func _save_state() -> void:
     var cfg := ConfigFile.new()
