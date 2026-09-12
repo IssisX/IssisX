@@ -129,7 +129,7 @@ func request_hijack(player: Node3D) -> bool:
 func try_enter(player: Node3D) -> bool:
     if disabled or player == null or player_driver != null:
         return false
-    var latched := _hijack_candidate == player or player.get("machine_climb_target") == self
+    var latched: bool = _hijack_candidate == player or player.get("machine_climb_target") == self
     if not latched and global_position.distance_to(player.global_position) > 3.5:
         return false
 
