@@ -36,13 +36,22 @@ var _grip_anchor: Node3D
 var _impact_probe: Area3D
 var _work_light: OmniLight3D
 var _engine_cover: MeshInstance3D
+var _arm_shapes: Array[CollisionShape3D] = []
 var _impact_cooldown := 0.0
 var _damage_fx_cooldown := 0.0
 var _telemetry_timer := 0.0
+var _arm_contact_cooldown := 0.0
 var _tool_tip_last := Vector3.ZERO
 var _tool_tip_velocity := Vector3.ZERO
 var _tool_tip_speed := 0.0
 var _tool_motion_ready := false
+
+var _safe_boom_angle := -0.24
+var _safe_stick_angle := 0.42
+var _safe_tool_angle := -0.18
+var _safe_arm_yaw := 0.0
+var _hijack_candidate: Node3D
+var _hijack_timeout := 0.0
 
 func _ready() -> void:
     add_to_group("machine")
@@ -59,6 +68,11 @@ func _ready() -> void:
     _impact_probe = nodes.impact_probe
     _work_light = nodes.work_light
     _engine_cover = nodes.engine_cover
+    if nodes.has("arm_shapes"):
+        for shape in nodes.arm_shapes:
+            if shape is CollisionShape3D:
+                _arm_shapes.append(shape)
+    _store_safe_arm_pose()
 
 func configure(controls, camera) -> void:
     hud = controls
@@ -72,6 +86,9 @@ func set_enemy_driver(driver: Node3D) -> void:
 
 func is_player_driven() -> bool:
     return player_driver != null
+
+func is_hijack_in_progress() -> bool:
+    return _hijack_candidate != null and is_instance_valid(_hijack_candidate) and _hijack_timeout > 0.0
 
 func get_health_ratio() -> float:
     return clampf(chassis_health / 500.0, 0.0, 1.0)
@@ -89,9 +106,33 @@ func get_tool_force() -> float:
 func is_holding_load() -> bool:
     return held_load != null and is_instance_valid(held_load)
 
-func try_enter(player: Node3D) -> bool:
-    if disabled or global_position.distance_to(player.global_position) > 3.3:
+func request_hijack(player: Node3D) -> bool:
+    if disabled or player == null or player_driver != null:
         return false
+    var distance: float = global_position.distance_to(player.global_position)
+    if distance <= 3.5:
+        return try_enter(player)
+    var range_value = player.get("machine_climb_range")
+    var climb_range: float = float(range_value) if range_value != null else 5.8
+    if distance > climb_range or not player.has_method("begin_machine_climb"):
+        return false
+    _hijack_candidate = player
+    _hijack_timeout = 1.5
+    if hud != null:
+        hud.set_context("HIJACK // LATCHING ON // MACHINE CONTROL PENDING")
+    var started: bool = bool(player.begin_machine_climb(self))
+    if not started:
+        _hijack_candidate = null
+        _hijack_timeout = 0.0
+    return started
+
+func try_enter(player: Node3D) -> bool:
+    if disabled or player == null or player_driver != null:
+        return false
+    var latched := _hijack_candidate == player or player.get("machine_climb_target") == self
+    if not latched and global_position.distance_to(player.global_position) > 3.5:
+        return false
+
     if enemy_driver != null:
         enemy_driver.visible = true
         enemy_driver.process_mode = Node.PROCESS_MODE_INHERIT
@@ -99,12 +140,17 @@ func try_enter(player: Node3D) -> bool:
         if enemy_driver.has_method("take_hit"):
             enemy_driver.take_hit(global_basis.x * 8.0 + Vector3.UP * 2.5, 40.0)
         enemy_driver = null
+
+    _hijack_candidate = null
+    _hijack_timeout = 0.0
     player_driver = player
+    velocity.x = 0.0
+    velocity.z = 0.0
     player.visible = false
     player.process_mode = Node.PROCESS_MODE_DISABLED
     if hud != null:
         hud.set_machine_mode(true)
-        hud.set_context("DIRECT BOOM // PHYSICAL BUCKET // HYDRAULIC THUMB")
+        hud.set_context("CONTROL TRANSFERRED // EXCAVATOR ONLINE")
     player_entered.emit(self)
     return true
 
@@ -166,6 +212,10 @@ func _physics_process(delta: float) -> void:
     _impact_cooldown = maxf(0.0, _impact_cooldown - delta)
     _damage_fx_cooldown = maxf(0.0, _damage_fx_cooldown - delta)
     _telemetry_timer = maxf(0.0, _telemetry_timer - delta)
+    _arm_contact_cooldown = maxf(0.0, _arm_contact_cooldown - delta)
+    _hijack_timeout = maxf(0.0, _hijack_timeout - delta)
+    if _hijack_timeout <= 0.0:
+        _hijack_candidate = null
 
     if disabled:
         velocity.x = move_toward(velocity.x, 0.0, 7.0 * delta)
@@ -181,7 +231,7 @@ func _physics_process(delta: float) -> void:
     if not is_on_floor():
         velocity.y -= 26.0 * delta
     move_and_slide()
-    _apply_arm_pose()
+    _resolve_arm_contact_pose()
     _update_tool_motion(delta)
     _update_held_load()
     _resolve_tool_impacts()
@@ -204,12 +254,15 @@ func _player_control(delta: float) -> void:
     var look: Vector2 = hud.consume_look()
     arm_yaw -= look.x * 0.0032 * hydraulic_ratio
     boom_angle += look.y * 0.0026 * hydraulic_ratio
-    arm_yaw = clamp(arm_yaw, -1.25, 1.25)
-    boom_angle = clamp(boom_angle, -0.95, 0.42)
+    arm_yaw = clampf(arm_yaw, -1.25, 1.25)
+    boom_angle = clampf(boom_angle, -0.95, 0.42)
 
+    if hud.smash_held:
+        stick_angle -= 1.05 * hydraulic_ratio * delta
+        tool_angle -= 1.30 * hydraulic_ratio * delta
     if hud.consume_attack():
-        stick_angle -= 0.36 * hydraulic_ratio
-        tool_angle -= 0.30 * hydraulic_ratio
+        stick_angle -= 0.12 * hydraulic_ratio
+        tool_angle -= 0.12 * hydraulic_ratio
         _impact_cooldown = 0.0
     if hud.consume_grab():
         if is_holding_load():
@@ -220,10 +273,14 @@ func _player_control(delta: float) -> void:
     if hud.consume_use() or Input.is_physical_key_pressed(KEY_E):
         exit_player()
 
-    stick_angle = clamp(stick_angle, -0.55, 1.00)
-    tool_angle = clamp(tool_angle, -1.0, 0.72)
+    stick_angle = clampf(stick_angle, -0.55, 1.00)
+    tool_angle = clampf(tool_angle, -1.0, 0.72)
 
 func _enemy_control(delta: float) -> void:
+    if is_hijack_in_progress():
+        velocity.x = move_toward(velocity.x, 0.0, 18.0 * delta)
+        velocity.z = move_toward(velocity.z, 0.0, 18.0 * delta)
+        return
     ai_time += delta
     var target := get_tree().get_first_node_in_group("player")
     if target == null:
@@ -251,6 +308,89 @@ func _apply_arm_pose() -> void:
     if _thumb != null:
         _thumb.rotation.x = -0.76 if is_holding_load() else -0.05
 
+func _store_safe_arm_pose() -> void:
+    _safe_boom_angle = boom_angle
+    _safe_stick_angle = stick_angle
+    _safe_tool_angle = tool_angle
+    _safe_arm_yaw = arm_yaw
+
+func _set_interpolated_arm_pose(target_boom: float, target_stick: float, target_tool: float, target_yaw: float, t: float) -> void:
+    boom_angle = lerpf(_safe_boom_angle, target_boom, t)
+    stick_angle = lerpf(_safe_stick_angle, target_stick, t)
+    tool_angle = lerpf(_safe_tool_angle, target_tool, t)
+    arm_yaw = lerpf(_safe_arm_yaw, target_yaw, t)
+    _apply_arm_pose()
+
+func _resolve_arm_contact_pose() -> void:
+    var target_boom := boom_angle
+    var target_stick := stick_angle
+    var target_tool := tool_angle
+    var target_yaw := arm_yaw
+    _apply_arm_pose()
+    var contacts := _collect_hard_arm_contacts()
+    if contacts.is_empty():
+        _store_safe_arm_pose()
+        return
+
+    _react_to_arm_contacts(contacts)
+    var low := 0.0
+    var high := 1.0
+    var best := 0.0
+    for _i in 6:
+        var mid := (low + high) * 0.5
+        _set_interpolated_arm_pose(target_boom, target_stick, target_tool, target_yaw, mid)
+        if _collect_hard_arm_contacts().is_empty():
+            best = mid
+            low = mid
+        else:
+            high = mid
+    _set_interpolated_arm_pose(target_boom, target_stick, target_tool, target_yaw, best)
+    _store_safe_arm_pose()
+
+func _collect_hard_arm_contacts() -> Array[Node]:
+    var contacts: Array[Node] = []
+    if _arm_shapes.is_empty() or get_world_3d() == null:
+        return contacts
+    var space := get_world_3d().direct_space_state
+    var exclude: Array[RID] = [get_rid()]
+    if held_load is CollisionObject3D:
+        exclude.append(held_load.get_rid())
+    for collision in _arm_shapes:
+        if collision == null or collision.shape == null:
+            continue
+        var query := PhysicsShapeQueryParameters3D.new()
+        query.shape = collision.shape
+        query.transform = collision.global_transform
+        query.collision_mask = 8
+        query.collide_with_bodies = true
+        query.collide_with_areas = false
+        query.exclude = exclude
+        var hits := space.intersect_shape(query, 16)
+        for hit in hits:
+            var collider = hit.get("collider")
+            if collider == null or collider == self or collider == held_load:
+                continue
+            if collider is RigidBody3D and not collider.freeze:
+                continue
+            if not contacts.has(collider):
+                contacts.append(collider)
+    return contacts
+
+func _react_to_arm_contacts(contacts: Array[Node]) -> void:
+    if _arm_contact_cooldown > 0.0:
+        return
+    var direction := _tool_tip_velocity.normalized() if _tool_tip_velocity.length_squared() > 0.04 else -_tool.global_basis.z
+    var force := get_tool_force()
+    var damaged := false
+    for collider in contacts:
+        if collider.has_method("machine_hit"):
+            collider.machine_hit(force, direction)
+            damaged = true
+    velocity -= direction * minf(force * 0.010, 1.6)
+    _arm_contact_cooldown = 0.12 if damaged else 0.07
+    if hud != null and player_driver != null:
+        hud.set_context("ARM CONTACT // LOAD PATH RESISTING MOTION")
+
 func _update_tool_motion(delta: float) -> void:
     var tip := _tool.to_global(Vector3(0.0, -0.20, -1.10))
     if not _tool_motion_ready:
@@ -267,7 +407,7 @@ func _try_grip_load() -> bool:
     for body in _impact_probe.get_overlapping_bodies():
         if body == self or not body.is_in_group("physics_prop") or body.mass > 420.0:
             continue
-        var d := body.global_position.distance_to(_grip_anchor.global_position)
+        var d: float = body.global_position.distance_to(_grip_anchor.global_position)
         if d < best_distance:
             best_distance = d
             best = body
@@ -318,6 +458,9 @@ func _resolve_tool_impacts() -> void:
             var push := impact_dir * (10.0 + minf(_tool_tip_speed, 12.0)) + Vector3.UP * 4.5
             body.take_hit(push, 42.0 + minf(_tool_tip_speed, 12.0) * 1.2)
             _impact_cooldown = 0.15
+        elif body is RigidBody3D and not body.freeze:
+            body.apply_impulse(impact_dir * minf(force * body.mass * 0.035, 2200.0), body.to_local(_tool.global_position))
+            _impact_cooldown = 0.12
 
 func _update_damage_fx() -> void:
     if get_health_ratio() > 0.58 or _damage_fx_cooldown > 0.0:
