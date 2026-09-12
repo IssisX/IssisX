@@ -5,6 +5,7 @@ const GeomUtil = preload("res://scripts/geom.gd")
 var player_style := false
 var phase := 0.0
 var attack_side := 1.0
+var attack_mode := 0
 var death_blend := 0.0
 
 var pelvis: Node3D
@@ -33,21 +34,14 @@ func _build() -> void:
     pelvis = Node3D.new()
     pelvis.position = Vector3(0.0, 0.93, 0.0)
     add_child(pelvis)
-    var pelvis_mesh := GeomUtil.box_mesh(Vector3(0.62, 0.34, 0.40), cloth_dark, 0.88, 0.02)
-    pelvis.add_child(pelvis_mesh)
+    pelvis.add_child(GeomUtil.box_mesh(Vector3(0.62, 0.34, 0.40), cloth_dark, 0.88, 0.02))
 
     torso = Node3D.new()
     torso.position = Vector3(0.0, 0.25, 0.0)
     pelvis.add_child(torso)
-    var torso_mesh := GeomUtil.box_mesh(
-        Vector3(0.82 if player_style else 0.74, 0.82, 0.46),
-        cloth,
-        0.76,
-        0.04
-    )
+    var torso_mesh := GeomUtil.box_mesh(Vector3(0.82 if player_style else 0.74, 0.82, 0.46), cloth, 0.76, 0.04)
     torso_mesh.position.y = 0.35
     torso.add_child(torso_mesh)
-
     var chest := GeomUtil.box_mesh(Vector3(0.68, 0.40, 0.075), accent, 0.80, 0.05)
     chest.position = Vector3(0.0, 0.39, -0.265)
     torso.add_child(chest)
@@ -95,8 +89,7 @@ func _build_arm(parent: Node3D, side: float, cloth: Color, gear: Color, skin: Co
     shoulder.name = "ArmL" if side < 0.0 else "ArmR"
     shoulder.position = Vector3(side * 0.47, 0.68, 0.0)
     parent.add_child(shoulder)
-    var shoulder_cap := GeomUtil.sphere_mesh(0.17, cloth)
-    shoulder.add_child(shoulder_cap)
+    shoulder.add_child(GeomUtil.sphere_mesh(0.17, cloth))
     var upper := GeomUtil.capsule_mesh(0.115, 0.52, cloth)
     upper.position.y = -0.26
     shoulder.add_child(upper)
@@ -104,8 +97,7 @@ func _build_arm(parent: Node3D, side: float, cloth: Color, gear: Color, skin: Co
     elbow.name = "Elbow"
     elbow.position.y = -0.51
     shoulder.add_child(elbow)
-    var elbow_cap := GeomUtil.sphere_mesh(0.12, gear)
-    elbow.add_child(elbow_cap)
+    elbow.add_child(GeomUtil.sphere_mesh(0.12, gear))
     var forearm := GeomUtil.capsule_mesh(0.105, 0.48, cloth)
     forearm.position.y = -0.24
     elbow.add_child(forearm)
@@ -129,8 +121,7 @@ func _build_leg(parent: Node3D, side: float, cloth: Color, gear: Color) -> Node3
     knee.name = "Knee"
     knee.position.y = -0.53
     hip.add_child(knee)
-    var knee_cap := GeomUtil.sphere_mesh(0.145, gear)
-    knee.add_child(knee_cap)
+    knee.add_child(GeomUtil.sphere_mesh(0.145, gear))
     var shin := GeomUtil.capsule_mesh(0.125, 0.50, cloth)
     shin.position.y = -0.25
     knee.add_child(shin)
@@ -147,28 +138,26 @@ func animate(delta: float, planar_speed: float, reference_speed: float, attack_a
     var stride := sin(phase) * 0.62 * speed_n
     var lift_l := maxf(0.0, -sin(phase)) * 0.72 * speed_n
     var lift_r := maxf(0.0, sin(phase)) * 0.72 * speed_n
-    leg_l.rotation.x = stride
-    leg_r.rotation.x = -stride
+    leg_l.rotation = Vector3(stride, 0.0, 0.0)
+    leg_r.rotation = Vector3(-stride, 0.0, 0.0)
     knee_l.rotation.x = lift_l
     knee_r.rotation.x = lift_r
-    arm_l.rotation.x = -stride * 0.72
-    arm_r.rotation.x = stride * 0.72
+    arm_l.rotation = Vector3(-stride * 0.72, 0.0, 0.0)
+    arm_r.rotation = Vector3(stride * 0.72, 0.0, 0.0)
     elbow_l.rotation.x = -0.10 - absf(stride) * 0.22
     elbow_r.rotation.x = -0.10 - absf(stride) * 0.22
     pelvis.position.y = 0.93 + absf(sin(phase * 2.0)) * 0.025 * speed_n
     torso.rotation = Vector3(0.0, sin(phase) * 0.055 * speed_n, -sin(phase) * 0.025 * speed_n)
+    head_root.rotation = Vector3.ZERO
 
     if attack_amount > 0.0:
-        var punch := sin(clampf(attack_amount, 0.0, 1.0) * PI)
-        torso.rotation.y += attack_side * punch * 0.40
-        var attack_arm := arm_r if attack_side > 0.0 else arm_l
-        var attack_elbow := elbow_r if attack_side > 0.0 else elbow_l
-        attack_arm.rotation.x = -1.05 * punch
-        attack_arm.rotation.z = -attack_side * 0.24 * punch
-        attack_elbow.rotation.x = -0.42 + 1.12 * punch
-        head_root.rotation.y = -attack_side * punch * 0.14
-    else:
-        head_root.rotation.y = lerp(head_root.rotation.y, 0.0, 0.22)
+        var action := sin(clampf(attack_amount, 0.0, 1.0) * PI)
+        if attack_mode == 1:
+            _pose_kick(action)
+        elif attack_mode == 2:
+            _pose_tackle(action)
+        else:
+            _pose_punch(action)
 
     if hit_amount > 0.0:
         torso.rotation.x -= hit_amount * 0.30
@@ -186,6 +175,44 @@ func animate(delta: float, planar_speed: float, reference_speed: float, attack_a
         rotation.z = 0.0
         rotation.x = 0.0
         position.y = 0.0
+
+func _pose_punch(amount: float) -> void:
+    torso.rotation.y += attack_side * amount * 0.40
+    var attack_arm := arm_r if attack_side > 0.0 else arm_l
+    var attack_elbow := elbow_r if attack_side > 0.0 else elbow_l
+    attack_arm.rotation.x = -1.05 * amount
+    attack_arm.rotation.z = -attack_side * 0.24 * amount
+    attack_elbow.rotation.x = -0.42 + 1.12 * amount
+    head_root.rotation.y = -attack_side * amount * 0.14
+
+func _pose_kick(amount: float) -> void:
+    var kick_leg := leg_r if attack_side > 0.0 else leg_l
+    var kick_knee := knee_r if attack_side > 0.0 else knee_l
+    var brace_leg := leg_l if attack_side > 0.0 else leg_r
+    torso.rotation.x = -0.20 * amount
+    torso.rotation.y = -attack_side * 0.22 * amount
+    torso.rotation.z = -attack_side * 0.16 * amount
+    kick_leg.rotation.x = -1.25 * amount
+    kick_leg.rotation.z = attack_side * 0.16 * amount
+    kick_knee.rotation.x = 0.22 + 0.72 * (1.0 - amount)
+    brace_leg.rotation.x = 0.22 * amount
+    arm_l.rotation.x = 0.54 * amount
+    arm_r.rotation.x = 0.54 * amount
+    arm_l.rotation.z = -0.34 * amount
+    arm_r.rotation.z = 0.34 * amount
+
+func _pose_tackle(amount: float) -> void:
+    torso.rotation.x = -0.48 * amount
+    pelvis.position.y = 0.93 - 0.12 * amount
+    arm_l.rotation.x = 0.74 * amount
+    arm_r.rotation.x = 0.74 * amount
+    arm_l.rotation.z = -0.30 * amount
+    arm_r.rotation.z = 0.30 * amount
+    elbow_l.rotation.x = -0.52 * amount
+    elbow_r.rotation.x = -0.52 * amount
+    leg_l.rotation.x = -0.26 * amount
+    leg_r.rotation.x = 0.26 * amount
+    head_root.rotation.x = 0.18 * amount
 
 func pose_climb(t: float, side: float) -> void:
     if pelvis == null:
@@ -206,3 +233,6 @@ func pose_climb(t: float, side: float) -> void:
 
 func set_attack_side(side: float) -> void:
     attack_side = 1.0 if side >= 0.0 else -1.0
+
+func set_attack_mode(mode: int) -> void:
+    attack_mode = clampi(mode, 0, 2)
