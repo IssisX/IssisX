@@ -18,8 +18,8 @@ DeathDirector="*res://scripts/death_director.gd"
 [display/window]
 size/viewport_width=1920
 size/viewport_height=1080
-size/window_width_override=1280
-size/window_height_override=720
+size/window_width_override=1536
+size/window_height_override=1320
 stretch/mode="canvas_items"
 stretch/aspect="expand"
 handheld/orientation=4
