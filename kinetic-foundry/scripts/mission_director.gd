@@ -15,7 +15,8 @@ const TITLES := [
     "BREAK THE YARD CREW",
     "TAKE THE EXCAVATOR",
     "DROP THE TRANSFER PLATFORM",
-    "OWN THE WRECKAGE"
+    "OWN THE WRECKAGE",
+    "BREACH THE NORTH ACCESS"
 ]
 
 func configure(player_node, machine_node, structure_node, hud_node) -> void:
@@ -33,6 +34,7 @@ func configure(player_node, machine_node, structure_node, hud_node) -> void:
 func _process(delta: float) -> void:
     if _complete:
         return
+
     if stage == 0:
         var living := 0
         for enemy in get_tree().get_nodes_in_group("enemy"):
@@ -40,24 +42,51 @@ func _process(delta: float) -> void:
                 living += 1
         var initial := 5.0
         var progress := clampf((initial - float(living)) / initial, 0.0, 1.0)
-        if hud != null and hud.has_method("set_objective_progress"):
-            hud.set_objective_progress(progress)
+        _set_progress(progress)
         if living <= 3:
             stage = 1
             _publish()
+
     elif stage == 3:
         _hold_timer += delta
-        var progress := clampf(_hold_timer / 6.0, 0.0, 1.0)
-        if hud != null and hud.has_method("set_objective_progress"):
-            hud.set_objective_progress(progress)
-        if _hold_timer >= 6.0:
-            _complete = true
-            if hud != null:
-                if hud.has_method("set_objective"):
-                    hud.set_objective("YARD SECURED", "THE FOUNDRY JUST CHANGED HANDS")
-                if hud.has_method("set_context"):
-                    hud.set_context("MISSION COMPLETE // INDUSTRIAL AUTHORITY ACQUIRED")
-            mission_complete.emit()
+        var progress := clampf(_hold_timer / 4.5, 0.0, 1.0)
+        _set_progress(progress)
+        if _hold_timer >= 4.5:
+            stage = 4
+            _publish()
+
+    elif stage == 4:
+        var gates := get_tree().get_nodes_in_group("breachable")
+        if gates.is_empty():
+            return
+        var gate = gates[0]
+        var left_ratio := 1.0
+        var right_ratio := 1.0
+        if gate.get("panel_health") != null:
+            var health = gate.get("panel_health")
+            if health is Array and health.size() >= 2:
+                left_ratio = clampf(float(health[0]) / 120.0, 0.0, 1.0)
+                right_ratio = clampf(float(health[1]) / 120.0, 0.0, 1.0)
+        _set_progress(1.0 - minf(left_ratio, right_ratio))
+        if bool(gate.get("breached")):
+            _finish_mission()
+
+func _set_progress(value: float) -> void:
+    if hud != null and hud.has_method("set_objective_progress"):
+        hud.set_objective_progress(value)
+
+func _finish_mission() -> void:
+    if _complete:
+        return
+    _complete = true
+    if hud != null:
+        if hud.has_method("set_objective"):
+            hud.set_objective("YARD SECURED", "ACCESS OPEN // INDUSTRIAL CONTROL ACQUIRED")
+        if hud.has_method("set_objective_progress"):
+            hud.set_objective_progress(1.0)
+        if hud.has_method("set_context"):
+            hud.set_context("MISSION COMPLETE // THE FOUNDRY CHANGED HANDS")
+    mission_complete.emit()
 
 func _on_machine_entered(_machine) -> void:
     if stage <= 1:
@@ -79,13 +108,14 @@ func _publish() -> void:
         0:
             detail = "CUT THE CREW DOWN UNTIL THE MACHINE IS EXPOSED"
         1:
-            detail = "CLOSE ON THE EXCAVATOR AND RIP THE OPERATOR OUT"
+            detail = "CLOSE ON THE EXCAVATOR // LATCH // RIP THE OPERATOR OUT"
         2:
-            detail = "USE REAL BUCKET FORCE ON THE MARKED SUPPORTS"
+            detail = "USE REAL BUCKET VELOCITY ON THE MARKED SUPPORTS"
         3:
-            detail = "STAY IN THE COLLAPSE ZONE AND KEEP CONTROL"
+            detail = "HOLD THE COLLAPSE ZONE WHILE THE WORLD SETTLES"
+        4:
+            detail = "DRIVE NORTH // BREAK A GATE LEAF // TURN THE DOOR INTO DEBRIS"
     if hud != null and hud.has_method("set_objective"):
         hud.set_objective(title, detail)
-    if hud != null and hud.has_method("set_objective_progress"):
-        hud.set_objective_progress(0.0)
+    _set_progress(0.0)
     objective_changed.emit(title, detail, 0.0)
