@@ -18,7 +18,7 @@ func _scan_scene() -> void:
     await get_tree().process_frame
     for node in get_tree().get_nodes_in_group("player"):
         _bind_player(node)
-    var scene := get_tree().current_scene
+    var scene: Node = get_tree().current_scene
     if scene != null:
         _scan_for_mission(scene)
 
@@ -44,7 +44,7 @@ func _bind_player(node) -> void:
     _apply_player_progression()
 
 func _bind_mission(node) -> void:
-    var id := node.get_instance_id()
+    var id: int = int(node.get_instance_id())
     if _bound_missions.has(id):
         return
     _bound_missions[id] = true
@@ -59,7 +59,7 @@ func _on_mission_complete() -> void:
         equipment_tier += 1
     _apply_player_progression()
     _save_state()
-    var hud := _find_hud()
+    var hud: Node = _find_hud()
     if hud != null:
         hud.set_context("UPGRADE // BODY %d // GEAR %d // NEW PHYSICAL AUTHORITY" % [character_tier, equipment_tier])
 
@@ -72,13 +72,11 @@ func _apply_player_progression() -> void:
     _player.speed = 7.4 + character_tier * 0.28
     _player.sprint_speed = 10.2 + character_tier * 0.42
 
-    # Character progression changes what the body can physically dominate.
     _player.grab_mass_limit = 110.0 + character_tier * 42.0
     _player.melee_force_multiplier = 1.0 + character_tier * 0.11
     _player.throw_force_multiplier = 1.0 + character_tier * 0.13
     _player.machine_climb_range = 5.8 + character_tier * 0.32
 
-    # Equipment progression improves survival and industrial protection.
     _player.damage_reduction = clampf(equipment_tier * 0.055, 0.0, 0.42)
     _player.hazard_reduction = clampf(equipment_tier * 0.075, 0.0, 0.55)
 
@@ -86,11 +84,11 @@ func _apply_player_progression() -> void:
     _player.set_meta("equipment_tier", equipment_tier)
     _player.set_meta("physical_authority", character_tier + equipment_tier)
 
-func _find_hud():
-    var scene := get_tree().current_scene
+func _find_hud() -> Node:
+    var scene: Node = get_tree().current_scene
     if scene == null:
         return null
-    return scene.get("hud")
+    return scene.get("hud") as Node
 
 func _save_state() -> void:
     var cfg := ConfigFile.new()
