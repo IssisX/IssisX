@@ -13,6 +13,7 @@ var cable: MeshInstance3D
 var danger_area: Area3D
 
 func _ready() -> void:
+    add_to_group("capture_mover")
     collision_layer = 8
     collision_mask = 1 | 2 | 4 | 8
     sync_to_physics = true
