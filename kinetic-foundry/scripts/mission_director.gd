@@ -11,6 +11,10 @@ var hud
 var _hold_timer := 0.0
 var _complete := false
 
+const HOLD_SECONDS := 5.5
+const HOLD_RADIUS := 9.5
+const CONTEST_RADIUS := 8.0
+
 const TITLES: Array[String] = [
     "BREAK THE YARD CREW",
     "TAKE THE EXCAVATOR",
@@ -48,12 +52,7 @@ func _process(delta: float) -> void:
             _publish()
 
     elif stage == 3:
-        _hold_timer += delta
-        var progress: float = clampf(_hold_timer / 4.5, 0.0, 1.0)
-        _set_progress(progress)
-        if _hold_timer >= 4.5:
-            stage = 4
-            _publish()
+        _update_wreckage_hold(delta)
 
     elif stage == 4:
         var gates: Array[Node] = get_tree().get_nodes_in_group("breachable")
@@ -69,6 +68,43 @@ func _process(delta: float) -> void:
         _set_progress(1.0 - minf(left_ratio, right_ratio))
         if bool(gate.get("breached")):
             _finish_mission()
+
+func _update_wreckage_hold(delta: float) -> void:
+    if structure == null:
+        return
+    var control_pos: Vector3 = _control_position()
+    var inside: bool = control_pos.distance_to(structure.global_position) <= HOLD_RADIUS
+    var contesters: int = 0
+    for enemy in get_tree().get_nodes_in_group("enemy"):
+        if not is_instance_valid(enemy) or enemy.dead or not enemy.visible:
+            continue
+        if enemy.global_position.distance_to(structure.global_position) <= CONTEST_RADIUS:
+            contesters += 1
+
+    if inside and contesters == 0:
+        _hold_timer = minf(HOLD_SECONDS, _hold_timer + delta)
+        if hud != null and hud.has_method("set_context"):
+            hud.set_context("WRECKAGE CONTROL // %0.1fs" % maxf(0.0, HOLD_SECONDS - _hold_timer))
+    elif inside:
+        _hold_timer = maxf(0.0, _hold_timer - delta * 0.18)
+        if hud != null and hud.has_method("set_context"):
+            hud.set_context("ZONE CONTESTED // CLEAR %d HOSTILE%s" % [contesters, "S" if contesters != 1 else ""])
+    else:
+        _hold_timer = maxf(0.0, _hold_timer - delta * 0.65)
+        if hud != null and hud.has_method("set_context"):
+            hud.set_context("ZONE LOST // RETURN TO THE COLLAPSE")
+
+    _set_progress(clampf(_hold_timer / HOLD_SECONDS, 0.0, 1.0))
+    if _hold_timer >= HOLD_SECONDS:
+        stage = 4
+        _publish()
+
+func _control_position() -> Vector3:
+    if excavator != null and excavator.get("player_driver") != null:
+        return excavator.global_position
+    if player != null:
+        return player.global_position
+    return Vector3(100000.0, 100000.0, 100000.0)
 
 func _set_progress(value: float) -> void:
     if hud != null and hud.has_method("set_objective_progress"):
@@ -111,7 +147,7 @@ func _publish() -> void:
         2:
             detail = "USE REAL BUCKET VELOCITY ON THE MARKED SUPPORTS"
         3:
-            detail = "HOLD THE COLLAPSE ZONE WHILE THE WORLD SETTLES"
+            detail = "ENTER THE COLLAPSE ZONE // CLEAR HOSTILES // HOLD CONTROL"
         4:
             detail = "DRIVE NORTH // BREAK A GATE LEAF // TURN THE DOOR INTO DEBRIS"
     if hud != null and hud.has_method("set_objective"):
