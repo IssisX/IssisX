@@ -48,15 +48,9 @@ func _build() -> void:
     torso_mesh.position.y = 0.35
     torso.add_child(torso_mesh)
 
-    var chest := GeomUtil.box_mesh(
-        Vector3(0.68, 0.40, 0.075),
-        accent,
-        0.80,
-        0.05
-    )
+    var chest := GeomUtil.box_mesh(Vector3(0.68, 0.40, 0.075), accent, 0.80, 0.05)
     chest.position = Vector3(0.0, 0.39, -0.265)
     torso.add_child(chest)
-
     var belt := GeomUtil.box_mesh(Vector3(0.68, 0.12, 0.45), gear, 0.90, 0.08)
     belt.position.y = -0.02
     torso.add_child(belt)
@@ -70,7 +64,6 @@ func _build() -> void:
     var head := GeomUtil.sphere_mesh(0.245 if player_style else 0.235, skin)
     head.position.y = 0.26
     head_root.add_child(head)
-
     var helmet := GeomUtil.box_mesh(
         Vector3(0.52, 0.17, 0.53),
         Color(0.13, 0.15, 0.14) if player_style else Color(0.74, 0.53, 0.09),
@@ -102,13 +95,11 @@ func _build_arm(parent: Node3D, side: float, cloth: Color, gear: Color, skin: Co
     shoulder.name = "ArmL" if side < 0.0 else "ArmR"
     shoulder.position = Vector3(side * 0.47, 0.68, 0.0)
     parent.add_child(shoulder)
-
     var shoulder_cap := GeomUtil.sphere_mesh(0.17, cloth)
     shoulder.add_child(shoulder_cap)
     var upper := GeomUtil.capsule_mesh(0.115, 0.52, cloth)
     upper.position.y = -0.26
     shoulder.add_child(upper)
-
     var elbow := Node3D.new()
     elbow.name = "Elbow"
     elbow.position.y = -0.51
@@ -131,11 +122,9 @@ func _build_leg(parent: Node3D, side: float, cloth: Color, gear: Color) -> Node3
     hip.name = "LegL" if side < 0.0 else "LegR"
     hip.position = Vector3(side * 0.20, -0.05, 0.0)
     parent.add_child(hip)
-
     var thigh := GeomUtil.capsule_mesh(0.145, 0.55, cloth)
     thigh.position.y = -0.27
     hip.add_child(thigh)
-
     var knee := Node3D.new()
     knee.name = "Knee"
     knee.position.y = -0.53
@@ -150,14 +139,7 @@ func _build_leg(parent: Node3D, side: float, cloth: Color, gear: Color) -> Node3
     knee.add_child(boot)
     return hip
 
-func animate(
-        delta: float,
-        planar_speed: float,
-        reference_speed: float,
-        attack_amount: float,
-        hit_amount: float,
-        dead: bool
-) -> void:
+func animate(delta: float, planar_speed: float, reference_speed: float, attack_amount: float, hit_amount: float, dead: bool) -> void:
     if pelvis == null:
         return
     var speed_n := clampf(planar_speed / maxf(reference_speed, 0.1), 0.0, 1.35)
@@ -165,7 +147,6 @@ func animate(
     var stride := sin(phase) * 0.62 * speed_n
     var lift_l := maxf(0.0, -sin(phase)) * 0.72 * speed_n
     var lift_r := maxf(0.0, sin(phase)) * 0.72 * speed_n
-
     leg_l.rotation.x = stride
     leg_r.rotation.x = -stride
     knee_l.rotation.x = lift_l
@@ -174,7 +155,6 @@ func animate(
     arm_r.rotation.x = stride * 0.72
     elbow_l.rotation.x = -0.10 - absf(stride) * 0.22
     elbow_r.rotation.x = -0.10 - absf(stride) * 0.22
-
     pelvis.position.y = 0.93 + absf(sin(phase * 2.0)) * 0.025 * speed_n
     torso.rotation = Vector3(0.0, sin(phase) * 0.055 * speed_n, -sin(phase) * 0.025 * speed_n)
 
@@ -206,6 +186,23 @@ func animate(
         rotation.z = 0.0
         rotation.x = 0.0
         position.y = 0.0
+
+func pose_climb(t: float, side: float) -> void:
+    if pelvis == null:
+        return
+    var pull := sin(clampf(t, 0.0, 1.0) * PI)
+    phase += 0.13
+    torso.rotation = Vector3(-0.18 - pull * 0.18, side * 0.08, -side * 0.10)
+    pelvis.position.y = 0.93 + pull * 0.06
+    arm_l.rotation = Vector3(-1.35 + sin(phase) * 0.10, 0.0, -0.38)
+    arm_r.rotation = Vector3(-1.42 - sin(phase) * 0.10, 0.0, 0.38)
+    elbow_l.rotation.x = 0.72 + pull * 0.34
+    elbow_r.rotation.x = 0.82 + pull * 0.28
+    leg_l.rotation.x = -0.68 + pull * 0.36
+    leg_r.rotation.x = 0.44 - pull * 0.18
+    knee_l.rotation.x = 1.02
+    knee_r.rotation.x = 0.78
+    head_root.rotation = Vector3(-0.08, -side * 0.18, 0.0)
 
 func set_attack_side(side: float) -> void:
     attack_side = 1.0 if side >= 0.0 else -1.0
