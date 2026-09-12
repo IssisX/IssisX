@@ -61,24 +61,20 @@ func _process(delta: float) -> void:
     if mission == null or mission.get("_complete") == true:
         marker_root.visible = false
         return
+
     marker_root.visible = true
     var stage := int(mission.get("stage"))
     var target_pos := Vector3.ZERO
     if stage == 0:
-        var best = null
-        var best_dist := INF
-        for enemy in get_tree().get_nodes_in_group("enemy"):
-            if not is_instance_valid(enemy) or enemy.dead or not enemy.visible:
-                continue
-            var d := player.global_position.distance_to(enemy.global_position) if player != null else 0.0
-            if d < best_dist:
-                best_dist = d
-                best = enemy
-        target_pos = best.global_position if best != null else Vector3.ZERO
+        target_pos = _nearest_live_enemy(player)
     elif stage == 1:
         target_pos = machine.global_position if machine != null else Vector3.ZERO
-    else:
+    elif stage == 2 or stage == 3:
         target_pos = structure.global_position if structure != null else Vector3.ZERO
+    elif stage == 4:
+        var gates := get_tree().get_nodes_in_group("breachable")
+        target_pos = gates[0].global_position if not gates.is_empty() else Vector3.ZERO
+
     marker_root.global_position = target_pos + Vector3.UP * 0.06
     ring_a.rotation.y += delta * 1.45
     ring_b.rotation.y -= delta * 0.95
@@ -87,3 +83,15 @@ func _process(delta: float) -> void:
     ring_b.scale = Vector3(1.0 / pulse, 1.0, 1.0 / pulse)
     beam.visible = stage > 0
     light.light_energy = 1.0 + absf(sin(time * 3.1)) * 1.1
+
+func _nearest_live_enemy(player) -> Vector3:
+    var best = null
+    var best_dist := INF
+    for enemy in get_tree().get_nodes_in_group("enemy"):
+        if not is_instance_valid(enemy) or enemy.dead or not enemy.visible:
+            continue
+        var d := player.global_position.distance_to(enemy.global_position) if player != null else 0.0
+        if d < best_dist:
+            best_dist = d
+            best = enemy
+    return best.global_position if best != null else Vector3.ZERO
