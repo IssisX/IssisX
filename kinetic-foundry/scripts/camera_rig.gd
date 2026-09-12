@@ -21,6 +21,7 @@ func _ready() -> void:
     _camera = Camera3D.new()
     _camera.current = true
     _camera.fov = 68.0
+    _camera.keep_aspect = Camera3D.KEEP_WIDTH
     _camera.near = 0.12
     add_child(_camera)
 
@@ -50,7 +51,7 @@ func apply_look(delta: Vector2) -> void:
         return
     yaw -= delta.x * look_sensitivity
     pitch -= delta.y * look_sensitivity
-    pitch = clamp(pitch, -0.72, 0.20)
+    pitch = clampf(pitch, -0.72, 0.20)
 
 func _process(delta: float) -> void:
     if _manual_capture:
