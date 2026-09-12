@@ -11,7 +11,7 @@ var hud
 var _hold_timer := 0.0
 var _complete := false
 
-const TITLES := [
+const TITLES: Array[String] = [
     "BREAK THE YARD CREW",
     "TAKE THE EXCAVATOR",
     "DROP THE TRANSFER PLATFORM",
@@ -36,12 +36,12 @@ func _process(delta: float) -> void:
         return
 
     if stage == 0:
-        var living := 0
+        var living: int = 0
         for enemy in get_tree().get_nodes_in_group("enemy"):
             if is_instance_valid(enemy) and not enemy.dead and enemy.visible:
                 living += 1
-        var initial := 5.0
-        var progress := clampf((initial - float(living)) / initial, 0.0, 1.0)
+        var initial: float = 5.0
+        var progress: float = clampf((initial - float(living)) / initial, 0.0, 1.0)
         _set_progress(progress)
         if living <= 3:
             stage = 1
@@ -49,24 +49,23 @@ func _process(delta: float) -> void:
 
     elif stage == 3:
         _hold_timer += delta
-        var progress := clampf(_hold_timer / 4.5, 0.0, 1.0)
+        var progress: float = clampf(_hold_timer / 4.5, 0.0, 1.0)
         _set_progress(progress)
         if _hold_timer >= 4.5:
             stage = 4
             _publish()
 
     elif stage == 4:
-        var gates := get_tree().get_nodes_in_group("breachable")
+        var gates: Array[Node] = get_tree().get_nodes_in_group("breachable")
         if gates.is_empty():
             return
-        var gate = gates[0]
-        var left_ratio := 1.0
-        var right_ratio := 1.0
-        if gate.get("panel_health") != null:
-            var health = gate.get("panel_health")
-            if health is Array and health.size() >= 2:
-                left_ratio = clampf(float(health[0]) / 120.0, 0.0, 1.0)
-                right_ratio = clampf(float(health[1]) / 120.0, 0.0, 1.0)
+        var gate: Node = gates[0]
+        var left_ratio: float = 1.0
+        var right_ratio: float = 1.0
+        var health = gate.get("panel_health")
+        if health is Array and health.size() >= 2:
+            left_ratio = clampf(float(health[0]) / 120.0, 0.0, 1.0)
+            right_ratio = clampf(float(health[1]) / 120.0, 0.0, 1.0)
         _set_progress(1.0 - minf(left_ratio, right_ratio))
         if bool(gate.get("breached")):
             _finish_mission()
@@ -102,8 +101,8 @@ func _on_structure_collapsed() -> void:
 func _publish() -> void:
     if _complete:
         return
-    var title := TITLES[stage]
-    var detail := ""
+    var title: String = TITLES[stage]
+    var detail: String = ""
     match stage:
         0:
             detail = "CUT THE CREW DOWN UNTIL THE MACHINE IS EXPOSED"
