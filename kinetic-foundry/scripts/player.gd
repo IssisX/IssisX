@@ -17,6 +17,8 @@ var engage_timer := 0.0
 var held_target
 var attack_cooldown := 0.0
 var attack_anim := 0.0
+var attack_duration := 0.28
+var attack_mode := 0
 var hit_anim := 0.0
 var combo_window := 0.0
 var combo_step := 0
@@ -100,18 +102,8 @@ func _update_machine_climb(delta: float) -> void:
     var raw_t := clampf(machine_climb_time / machine_climb_duration, 0.0, 1.0)
     var t := raw_t * raw_t * (3.0 - 2.0 * raw_t)
     var machine = machine_climb_target
-    var side_point: Vector3 = (
-        machine.global_position
-        + machine.global_basis.x * machine_climb_side * 1.72
-        + machine.global_basis.z * 0.32
-        + Vector3.UP * 1.05
-    )
-    var cab_point: Vector3 = (
-        machine.global_position
-        - machine.global_basis.x * 0.95
-        + machine.global_basis.z * 0.12
-        + Vector3.UP * 1.72
-    )
+    var side_point: Vector3 = machine.global_position + machine.global_basis.x * machine_climb_side * 1.72 + machine.global_basis.z * 0.32 + Vector3.UP * 1.05
+    var cab_point: Vector3 = machine.global_position - machine.global_basis.x * 0.95 + machine.global_basis.z * 0.12 + Vector3.UP * 1.72
     var mid_t := clampf(t * 1.8, 0.0, 1.0)
     var finish_t := clampf((t - 0.48) / 0.52, 0.0, 1.0)
     var approach := machine_climb_start.lerp(side_point, mid_t)
@@ -211,20 +203,17 @@ func _try_traversal() -> bool:
     var low_hit := space.intersect_ray(low_query)
     if low_hit.is_empty():
         return false
-
     var high_from := global_position + Vector3.UP * 1.45
     var high_to := high_from + forward * 1.45
     var high_query := PhysicsRayQueryParameters3D.create(high_from, high_to, 2 | 8)
     high_query.exclude = [self]
     var high_hit := space.intersect_ray(high_query)
-
     if high_hit.is_empty():
         velocity = forward * 8.8 + Vector3.UP * 6.8
         traversal_lock = 0.34
         if hud != null and hud.has_method("set_context"):
             hud.set_context("VAULT")
         return true
-
     var chest_from := global_position + Vector3.UP * 1.72
     var chest_to := chest_from + forward * 1.15
     var chest_query := PhysicsRayQueryParameters3D.create(chest_from, chest_to, 2 | 8)
@@ -240,14 +229,10 @@ func _try_traversal() -> bool:
 
 func _keyboard_axis() -> Vector2:
     var axis := Vector2.ZERO
-    if Input.is_physical_key_pressed(KEY_A):
-        axis.x -= 1.0
-    if Input.is_physical_key_pressed(KEY_D):
-        axis.x += 1.0
-    if Input.is_physical_key_pressed(KEY_W):
-        axis.y -= 1.0
-    if Input.is_physical_key_pressed(KEY_S):
-        axis.y += 1.0
+    if Input.is_physical_key_pressed(KEY_A): axis.x -= 1.0
+    if Input.is_physical_key_pressed(KEY_D): axis.x += 1.0
+    if Input.is_physical_key_pressed(KEY_W): axis.y -= 1.0
+    if Input.is_physical_key_pressed(KEY_S): axis.y += 1.0
     return axis
 
 func _keyboard_attack() -> bool:
@@ -262,11 +247,18 @@ func _keyboard_use() -> bool:
 func _attack() -> void:
     if attack_cooldown > 0.0 or traversal_lock > 0.0:
         return
-    attack_cooldown = 0.24 if combo_step < 2 else 0.38
-    attack_anim = 0.28
+    var planar_speed := Vector2(velocity.x, velocity.z).length()
+    var target = _find_target(3.05 if planar_speed > speed * 0.92 else 2.35)
+    var sprint_tackle := target != null and planar_speed > speed * 0.92 and combo_step == 0
+
     attack_side *= -1.0
+    attack_mode = 2 if sprint_tackle else (1 if combo_step == 2 else 0)
+    attack_duration = 0.42 if sprint_tackle else (0.38 if attack_mode == 1 else 0.28)
+    attack_anim = attack_duration
+    attack_cooldown = 0.58 if sprint_tackle else (0.40 if attack_mode == 1 else 0.24)
     if _rig != null:
         _rig.set_attack_side(attack_side)
+        _rig.set_attack_mode(attack_mode)
 
     if held_target != null and is_instance_valid(held_target):
         var throw_dir: Vector3 = -global_basis.z
@@ -277,10 +269,6 @@ func _attack() -> void:
         combo_window = 0.0
         return
 
-    var damage := [24.0, 29.0, 39.0][combo_step]
-    var push_strength := [7.4, 8.8, 13.8][combo_step]
-    var lift := [1.5, 2.0, 3.9][combo_step]
-    var target = _find_target(2.35)
     if target != null:
         engaged_target = target
         engage_timer = 1.15
@@ -289,11 +277,22 @@ func _attack() -> void:
         if dir.length_squared() < 0.01:
             dir = -global_basis.z
         dir = dir.normalized()
-        rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), 0.62)
-        velocity += dir * (1.7 if combo_step < 2 else 2.8)
+        rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), 0.72 if sprint_tackle else 0.62)
+
+        var damage := 36.0 if sprint_tackle else ([24.0, 29.0, 44.0][combo_step])
+        var push_strength := 16.0 if sprint_tackle else ([7.4, 8.8, 16.5][combo_step])
+        var lift := 1.1 if sprint_tackle else ([1.5, 2.0, 2.6][combo_step])
+        velocity += dir * (4.7 if sprint_tackle else (3.2 if combo_step == 2 else 1.7))
         target.take_hit(dir * push_strength + Vector3.UP * lift, damage)
-        combo_step = (combo_step + 1) % 3
-        combo_window = 0.66
+        if sprint_tackle:
+            traversal_lock = 0.18
+            combo_step = 1
+            combo_window = 0.72
+            if hud != null: hud.set_context("SHOULDER DRIVE // TARGET DISPLACED")
+        else:
+            combo_step = (combo_step + 1) % 3
+            combo_window = 0.72
+            if attack_mode == 1 and hud != null: hud.set_context("SIDE KICK // HEAVY FINISHER")
         return
 
     var prop = _find_prop(2.15)
@@ -303,7 +302,8 @@ func _attack() -> void:
         if prop_dir.length_squared() < 0.01:
             prop_dir = -global_basis.z
         prop_dir = prop_dir.normalized()
-        prop.take_hit(prop_dir * 9.5 + Vector3.UP * 1.9, damage * 0.80)
+        var prop_damage := 34.0 if attack_mode == 1 else 19.0
+        prop.take_hit(prop_dir * (12.5 if attack_mode == 1 else 9.5) + Vector3.UP * 1.9, prop_damage)
         velocity += prop_dir * 0.8
     combo_step = 0
     combo_window = 0.0
@@ -317,7 +317,6 @@ func _grab_or_throw() -> void:
         held_target.take_hit(dir * 13.5 + Vector3.UP * 5.2, 24.0)
         held_target = null
         return
-
     var target = _find_grabbable(1.90)
     if target == null:
         return
@@ -343,16 +342,12 @@ func _find_grabbable(radius: float):
     candidates.append_array(get_tree().get_nodes_in_group("enemy"))
     candidates.append_array(get_tree().get_nodes_in_group("physics_prop"))
     for node in candidates:
-        if not is_instance_valid(node):
-            continue
-        if node.is_in_group("enemy") and node.dead:
-            continue
-        if node.is_in_group("physics_prop") and node.mass > 110.0:
-            continue
+        if not is_instance_valid(node): continue
+        if node.is_in_group("enemy") and node.dead: continue
+        if node.is_in_group("physics_prop") and node.mass > 110.0: continue
         var offset: Vector3 = node.global_position - global_position
         var dist: float = offset.length()
-        if dist > radius:
-            continue
+        if dist > radius: continue
         var dir: Vector3 = offset.normalized()
         var score: float = forward.dot(dir) * 2.2 - dist * 0.60
         if score > best_score:
@@ -365,12 +360,10 @@ func _find_prop(radius: float):
     var best_score: float = -9999.0
     var forward: Vector3 = -global_basis.z
     for prop in get_tree().get_nodes_in_group("physics_prop"):
-        if not is_instance_valid(prop):
-            continue
+        if not is_instance_valid(prop): continue
         var offset: Vector3 = prop.global_position - global_position
         var dist: float = offset.length()
-        if dist > radius:
-            continue
+        if dist > radius: continue
         var dir: Vector3 = offset.normalized()
         var score: float = forward.dot(dir) * 2.0 - dist * 0.55
         if score > best_score:
@@ -387,12 +380,10 @@ func _find_target(radius: float):
     var best_score: float = -9999.0
     var forward: Vector3 = -global_basis.z
     for enemy in get_tree().get_nodes_in_group("enemy"):
-        if not enemy.visible or enemy.dead:
-            continue
+        if not enemy.visible or enemy.dead: continue
         var offset: Vector3 = enemy.global_position - global_position
         var dist: float = offset.length()
-        if dist > radius:
-            continue
+        if dist > radius: continue
         var dir: Vector3 = offset.normalized()
         var facing: float = forward.dot(dir)
         var score: float = facing * 2.0 - dist * 0.55
@@ -405,17 +396,15 @@ func _animate(delta: float) -> void:
     if _rig == null:
         return
     var planar := Vector2(velocity.x, velocity.z).length()
-    var attack_amount := attack_anim / 0.28 if attack_anim > 0.0 else 0.0
+    var attack_amount := attack_anim / maxf(attack_duration, 0.01) if attack_anim > 0.0 else 0.0
     var hit_amount := hit_anim / 0.28 if hit_anim > 0.0 else 0.0
     _rig.animate(delta, planar, speed, attack_amount, hit_amount, health <= 0.0)
 
 func _update_hud() -> void:
     if hud == null:
         return
-    if hud.has_method("set_health"):
-        hud.set_health(health / max_health)
-    if hud.has_method("set_target"):
-        hud.set_target(engaged_target)
+    if hud.has_method("set_health"): hud.set_health(health / max_health)
+    if hud.has_method("set_target"): hud.set_target(engaged_target)
     if machine_climb_active:
         hud.set_context("LATCHED // CLIMBING MACHINE")
     elif held_target != null and is_instance_valid(held_target):
