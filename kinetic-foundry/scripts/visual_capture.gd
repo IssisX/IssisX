@@ -22,15 +22,15 @@ func _run() -> void:
     _freeze_gameplay()
 
     _stage_yard_overview()
-    await _settle_frames(10)
+    await _settle_frames(8)
     _capture("01_yard_overview.png")
 
     _stage_combat()
-    await _settle_frames(10)
+    await _settle_frames(8)
     _capture("02_grounded_combat.png")
 
     _stage_excavator_load()
-    await _settle_frames(10)
+    await _settle_frames(8)
     _capture("03_excavator_load_control.png")
 
     _stage_structure_damage()
@@ -59,8 +59,12 @@ func _freeze_gameplay() -> void:
         game.mission.process_mode = Node.PROCESS_MODE_DISABLED
     for enemy in get_tree().get_nodes_in_group("enemy"):
         enemy.process_mode = Node.PROCESS_MODE_DISABLED
+    for mover in get_tree().get_nodes_in_group("capture_mover"):
+        mover.process_mode = Node.PROCESS_MODE_DISABLED
+        mover.global_position = Vector3(-9.0, 4.72, -5.0)
 
 func _stage_yard_overview() -> void:
+    _set_movers_visible(true)
     _show_all_enemies(true)
     game.player.visible = true
     game.player.global_position = Vector3(-9.0, 0.03, 12.5)
@@ -72,14 +76,14 @@ func _stage_yard_overview() -> void:
     game.hud.set_objective("BREAK THE YARD CREW", "CUT THROUGH THE WORK YARD AND EXPOSE THE MACHINE")
     game.hud.set_objective_progress(0.20)
     game.hud.set_context("POWER // COMBAT // MACHINES")
-    anchor.global_position = Vector3(0.5, 1.0, -2.0)
-    game.camera_rig.set_target(anchor)
-    game.camera_rig.yaw = 0.70
-    game.camera_rig.pitch = -0.34
-    game.camera_rig.distance = 31.0
-    game.camera_rig.height = 9.0
+    game.camera_rig.set_capture_pose(
+        Vector3(25.0, 13.5, 24.0),
+        Vector3(0.0, 2.2, -3.0),
+        62.0
+    )
 
 func _stage_combat() -> void:
+    _set_movers_visible(false)
     game.player.visible = true
     game.player.global_position = Vector3(-6.8, 0.03, 8.0)
     game.player.rotation.y = -0.42
@@ -113,18 +117,20 @@ func _stage_combat() -> void:
     game.hud.set_objective("BREAK THE YARD CREW", "ADAPTIVE LOCK // COMMIT // THROW THE ENVIRONMENT")
     game.hud.set_objective_progress(0.45)
     game.hud.set_context("COMBO 2 / 3 // HEAVY FINISHER READY")
-    game.camera_rig.set_target(game.player)
-    game.camera_rig.yaw = 0.50
-    game.camera_rig.pitch = -0.20
-    game.camera_rig.distance = 10.4
-    game.camera_rig.height = 3.25
+    game.camera_rig.set_capture_pose(
+        Vector3(-0.7, 4.5, 14.6),
+        Vector3(-6.2, 1.15, 7.1),
+        58.0
+    )
 
 func _stage_excavator_load() -> void:
+    _set_movers_visible(false)
     game.player.visible = false
     _show_all_enemies(false)
     game.excavator.enemy_driver = null
     game.excavator.player_driver = game.player
     game.excavator.global_position = Vector3(4.0, -0.17, -3.0)
+    game.excavator.rotation.y = 0.28
     game.excavator.arm_yaw = -0.26
     game.excavator.boom_angle = -0.55
     game.excavator.stick_angle = 0.72
@@ -145,11 +151,11 @@ func _stage_excavator_load() -> void:
     game.hud.set_objective_progress(0.18)
     game.hud.set_machine_telemetry(0.88, 0.82, 0.91, 0.72, load != null)
     game.hud.set_context("LOAD CLAMPED // HYDRAULIC THUMB // DIRECT ARM")
-    game.camera_rig.set_target(game.excavator)
-    game.camera_rig.yaw = -0.72
-    game.camera_rig.pitch = -0.27
-    game.camera_rig.distance = 15.5
-    game.camera_rig.height = 5.0
+    game.camera_rig.set_capture_pose(
+        Vector3(14.5, 6.4, 8.5),
+        Vector3(4.0, 2.1, -4.2),
+        56.0
+    )
 
 func _stage_structure_damage() -> void:
     _release_capture_load()
@@ -161,12 +167,11 @@ func _stage_structure_damage() -> void:
     game.hud.set_objective_progress(0.52)
     game.hud.set_machine_telemetry(0.84, 0.76, 0.90, 0.88, false)
     game.hud.set_context("STRUCTURE RACKING // SUPPORT 01 CRITICAL")
-    anchor.global_position = game.structure.global_position + Vector3(0.0, 1.9, 0.0)
-    game.camera_rig.set_target(anchor)
-    game.camera_rig.yaw = -0.88
-    game.camera_rig.pitch = -0.25
-    game.camera_rig.distance = 15.0
-    game.camera_rig.height = 4.8
+    game.camera_rig.set_capture_pose(
+        Vector3(21.0, 7.3, -4.0),
+        game.structure.global_position + Vector3(0.0, 2.7, 0.0),
+        54.0
+    )
 
 func _stage_structure_collapse() -> void:
     game.structure.damage_support(0, 55.0, Vector3(1.0, 0.0, 0.25))
@@ -177,12 +182,11 @@ func _stage_structure_collapse() -> void:
     game.hud.set_objective("OWN THE WRECKAGE", "THE COLLAPSE IS NOW TERRAIN // HOLD THE SPACE")
     game.hud.set_objective_progress(0.63)
     game.hud.set_context("PERSISTENT DEBRIS // NEW COVER // NEW ROUTE")
-    anchor.global_position = game.structure.global_position + Vector3(0.0, 1.4, 0.0)
-    game.camera_rig.set_target(anchor)
-    game.camera_rig.yaw = -0.92
-    game.camera_rig.pitch = -0.20
-    game.camera_rig.distance = 16.0
-    game.camera_rig.height = 4.5
+    game.camera_rig.set_capture_pose(
+        Vector3(22.5, 6.0, -5.5),
+        game.structure.global_position + Vector3(0.0, 1.8, 0.0),
+        57.0
+    )
 
 func _stage_breach_gate() -> void:
     var gates := get_tree().get_nodes_in_group("breachable")
@@ -196,12 +200,11 @@ func _stage_breach_gate() -> void:
     game.hud.set_objective_progress(1.0)
     game.hud.set_machine_telemetry(0.79, 0.72, 0.86, 0.94, false)
     game.hud.set_context("ACCESS OPEN // DEBRIS REMAINS IN WORLD")
-    anchor.global_position = gate.global_position + Vector3(0.0, 1.6, -1.0)
-    game.camera_rig.set_target(anchor)
-    game.camera_rig.yaw = 0.10
-    game.camera_rig.pitch = -0.18
-    game.camera_rig.distance = 14.5
-    game.camera_rig.height = 3.8
+    game.camera_rig.set_capture_pose(
+        gate.global_position + Vector3(10.5, 5.2, -11.0),
+        gate.global_position + Vector3(0.0, 1.8, 0.0),
+        55.0
+    )
 
 func _release_capture_load() -> void:
     if game.excavator.held_load == null or not is_instance_valid(game.excavator.held_load):
@@ -217,6 +220,10 @@ func _first_prop():
         if is_instance_valid(prop) and prop.mass <= 110.0:
             return prop
     return null
+
+func _set_movers_visible(value: bool) -> void:
+    for mover in get_tree().get_nodes_in_group("capture_mover"):
+        mover.visible = value
 
 func _show_all_enemies(value: bool) -> void:
     for enemy in get_tree().get_nodes_in_group("enemy"):
