@@ -42,12 +42,22 @@ jobs:
           chmod +x "$GODOT_BIN"
           "$GODOT_BIN" --version
 
-      - name: Import project once
+      - name: Import project cleanly
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           xvfb-run -a -s "-screen 0 1920x1080x24" \
-            "$GODOT_BIN" --path kinetic-foundry --editor --quit
+            "$GODOT_BIN" --path kinetic-foundry --editor --quit --audio-driver Dummy \
+            2>&1 | tee /tmp/kinetic-import.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          if grep -qE 'SCRIPT ERROR:|Failed to load script|Failed to create an autoload|Failed to instantiate an autoload' /tmp/kinetic-import.log; then
+            echo "GODOT_IMPORT_SCRIPT_FAILURE"
+            grep -E 'SCRIPT ERROR:|Failed to load script|Failed to create an autoload|Failed to instantiate an autoload' /tmp/kinetic-import.log
+            exit 21
+          fi
 
       - name: Render capture suite
         shell: bash
@@ -63,10 +73,14 @@ jobs:
           set -e
           if [ "$status" -eq 124 ]; then
             echo "CAPTURE_TIMEOUT"
-            cat /tmp/kinetic-capture.log
             exit 124
           fi
           test "$status" -eq 0
+          if grep -qE 'SCRIPT ERROR:|Failed to load script|Failed to create an autoload|Failed to instantiate an autoload' /tmp/kinetic-capture.log; then
+            echo "GODOT_RUNTIME_SCRIPT_FAILURE"
+            grep -E 'SCRIPT ERROR:|Failed to load script|Failed to create an autoload|Failed to instantiate an autoload' /tmp/kinetic-capture.log
+            exit 22
+          fi
           grep -q 'CAPTURE_STAGE activation' /tmp/kinetic-capture.log
           grep -q 'CAPTURE_SUITE_OK' /tmp/kinetic-capture.log
 
