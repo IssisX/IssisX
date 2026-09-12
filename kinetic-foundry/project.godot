@@ -13,6 +13,7 @@ PopulationDetail="*res://scripts/population_detail.gd"
 AmbientActivity="*res://scripts/ambient_activity.gd"
 Progression="*res://scripts/progression.gd"
 ObjectiveMarker="*res://scripts/objective_marker.gd"
+DeathDirector="*res://scripts/death_director.gd"
 
 [display/window]
 size/viewport_width=1920
