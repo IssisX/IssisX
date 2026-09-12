@@ -32,12 +32,17 @@ func set_capture_pose(position: Vector3, look_at: Vector3, fov: float = 68.0) ->
     _manual_position = position
     _manual_look_at = look_at
     _manual_fov = fov
-    global_position = position
+    _camera.top_level = true
+    _camera.global_position = position
     _camera.fov = fov
+    _camera.current = true
     _camera.look_at(look_at, Vector3.UP)
 
 func clear_capture_pose() -> void:
     _manual_capture = false
+    _camera.top_level = false
+    _camera.position = Vector3.ZERO
+    _camera.rotation = Vector3.ZERO
     _camera.fov = 68.0
 
 func apply_look(delta: Vector2) -> void:
@@ -49,8 +54,9 @@ func apply_look(delta: Vector2) -> void:
 
 func _process(delta: float) -> void:
     if _manual_capture:
-        global_position = _manual_position
+        _camera.global_position = _manual_position
         _camera.fov = _manual_fov
+        _camera.current = true
         _camera.look_at(_manual_look_at, Vector3.UP)
         return
     if target == null or not is_instance_valid(target):
