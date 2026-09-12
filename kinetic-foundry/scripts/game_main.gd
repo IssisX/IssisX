@@ -20,6 +20,9 @@ var yard
 var hazards
 var mission
 
+var _reclaim_timer := 0.0
+var _reclaim_cooldown := 2.5
+
 func _ready() -> void:
     _build_environment()
     _build_world()
@@ -31,26 +34,59 @@ func _ready() -> void:
         add_child(capture_runner)
         capture_runner.begin(self)
 
+func _process(delta: float) -> void:
+    if OS.get_environment("KF_CAPTURE") == "1":
+        return
+    _reclaim_timer = maxf(0.0, _reclaim_timer - delta)
+    if _reclaim_timer <= 0.0:
+        _try_enemy_reclaim()
+        _reclaim_timer = 0.45
+
 func _build_environment() -> void:
     var world := WorldEnvironment.new()
     var env := Environment.new()
-    env.background_mode = Environment.BG_COLOR
-    env.background_color = Color(0.026, 0.034, 0.038)
-    env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    env.ambient_light_color = Color(0.29, 0.32, 0.33)
-    env.ambient_light_energy = 0.56
+
+    var sky_mat := ProceduralSkyMaterial.new()
+    sky_mat.sky_top_color = Color(0.035, 0.055, 0.075)
+    sky_mat.sky_horizon_color = Color(0.22, 0.20, 0.17)
+    sky_mat.ground_bottom_color = Color(0.018, 0.022, 0.024)
+    sky_mat.ground_horizon_color = Color(0.11, 0.10, 0.085)
+    sky_mat.sun_angle_max = 18.0
+    sky_mat.sun_curve = 0.08
+    var sky := Sky.new()
+    sky.sky_material = sky_mat
+
+    env.background_mode = Environment.BG_SKY
+    env.sky = sky
+    env.background_energy_multiplier = 0.72
+    env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+    env.ambient_light_color = Color(0.40, 0.43, 0.44)
+    env.ambient_light_energy = 0.78
+    env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
     env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
     env.fog_enabled = true
-    env.fog_light_color = Color(0.11, 0.13, 0.135)
-    env.fog_density = 0.009
+    env.fog_light_color = Color(0.19, 0.19, 0.175)
+    env.fog_light_energy = 0.72
+    env.fog_density = 0.0055
+    env.fog_height = 0.0
+    env.fog_height_density = 0.045
     world.environment = env
     add_child(world)
+
     var sun := DirectionalLight3D.new()
-    sun.rotation_degrees = Vector3(-52.0, -38.0, 0.0)
-    sun.light_color = Color(0.92, 0.84, 0.70)
-    sun.light_energy = 1.75
+    sun.rotation_degrees = Vector3(-49.0, -42.0, 0.0)
+    sun.light_color = Color(1.0, 0.82, 0.64)
+    sun.light_energy = 2.15
     sun.shadow_enabled = true
+    sun.directional_shadow_max_distance = 70.0
     add_child(sun)
+
+    var fill := DirectionalLight3D.new()
+    fill.rotation_degrees = Vector3(-28.0, 138.0, 0.0)
+    fill.light_color = Color(0.34, 0.48, 0.62)
+    fill.light_energy = 0.42
+    fill.shadow_enabled = false
+    add_child(fill)
 
 func _build_world() -> void:
     yard = YardScene.new()
@@ -110,22 +146,54 @@ func _retarget_enemies(target_node) -> void:
             enemy.set_target(target_node)
 
 func _on_player_use(user) -> void:
-    excavator.try_enter(user)
+    if excavator.try_enter(user):
+        return
+    if user.has_method("begin_machine_climb"):
+        user.begin_machine_climb(excavator)
 
 func _on_machine_entered(machine) -> void:
     camera_rig.set_target(machine)
     camera_rig.distance = 13.4
     camera_rig.height = 5.0
     _retarget_enemies(machine)
+    _reclaim_cooldown = 4.0
 
 func _on_machine_exited(_machine) -> void:
     camera_rig.set_target(player)
     camera_rig.distance = 9.8
     camera_rig.height = 3.2
     _retarget_enemies(player)
+    _reclaim_cooldown = 2.8
 
 func _on_machine_disabled(machine) -> void:
     if machine.player_driver != null:
         machine.exit_player()
     hud.set_context("EXCAVATOR DISABLED // RETURN TO FOOT CONTROL")
     _retarget_enemies(player)
+
+func _try_enemy_reclaim() -> void:
+    if excavator == null or excavator.disabled:
+        return
+    if excavator.player_driver != null or excavator.enemy_driver != null:
+        return
+    _reclaim_cooldown = maxf(0.0, _reclaim_cooldown - 0.45)
+    if _reclaim_cooldown > 0.0:
+        return
+    var best = null
+    var best_distance := 9999.0
+    for enemy in get_tree().get_nodes_in_group("enemy"):
+        if not is_instance_valid(enemy) or enemy.dead or not enemy.visible:
+            continue
+        var d: float = enemy.global_position.distance_to(excavator.global_position)
+        if d < best_distance:
+            best_distance = d
+            best = enemy
+    if best == null:
+        return
+    if best_distance <= 2.8:
+        excavator.set_enemy_driver(best)
+        _retarget_enemies(player)
+        hud.set_context("HOSTILE CREW RECLAIMED THE EXCAVATOR")
+        _reclaim_cooldown = 6.0
+    elif best.has_method("set_target") and best_distance < 15.0:
+        best.set_target(excavator)
