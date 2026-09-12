@@ -12,6 +12,15 @@ var health := 180.0
 var max_health := 180.0
 var speed := 7.4
 var sprint_speed := 10.2
+
+# Progression-backed physical affordances.
+var grab_mass_limit := 110.0
+var melee_force_multiplier := 1.0
+var throw_force_multiplier := 1.0
+var machine_climb_range := 5.8
+var damage_reduction := 0.0
+var hazard_reduction := 0.0
+
 var engaged_target
 var engage_timer := 0.0
 var held_target
@@ -52,14 +61,16 @@ func configure(controls, camera) -> void:
 func receive_enemy_hit(damage: float) -> void:
     if machine_climb_active:
         _cancel_machine_climb()
-    health = maxf(0.0, health - damage)
+    var applied := damage * (1.0 - clampf(damage_reduction, 0.0, 0.8))
+    health = maxf(0.0, health - applied)
     hit_anim = 0.28
     if hud != null and hud.has_method("flash_damage"):
         hud.flash_damage()
 
 func receive_hazard_hit(damage: float, impulse: Vector3) -> void:
-    receive_enemy_hit(damage)
-    velocity += impulse
+    var hazard_scale := 1.0 - clampf(hazard_reduction, 0.0, 0.8)
+    receive_enemy_hit(damage * hazard_scale)
+    velocity += impulse * (0.55 + hazard_scale * 0.45)
 
 func begin_machine_climb(machine) -> bool:
     if machine == null or not is_instance_valid(machine):
@@ -67,7 +78,7 @@ func begin_machine_climb(machine) -> bool:
     if machine_climb_active or held_target != null or health <= 0.0:
         return false
     var distance: float = global_position.distance_to(machine.global_position)
-    if distance > 5.8:
+    if distance > machine_climb_range:
         return false
     machine_climb_target = machine
     machine_climb_active = true
@@ -263,7 +274,8 @@ func _attack() -> void:
     if held_target != null and is_instance_valid(held_target):
         var throw_dir: Vector3 = -global_basis.z
         held_target.set_held(false)
-        held_target.take_hit(throw_dir * 17.0 + Vector3.UP * 6.2, 38.0)
+        var throw_mult := maxf(throw_force_multiplier, 0.5)
+        held_target.take_hit(throw_dir * 17.0 * throw_mult + Vector3.UP * 6.2 * throw_mult, 38.0 * throw_mult)
         held_target = null
         combo_step = 0
         combo_window = 0.0
@@ -279,9 +291,10 @@ func _attack() -> void:
         dir = dir.normalized()
         rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), 0.72 if sprint_tackle else 0.62)
 
-        var damage := 36.0 if sprint_tackle else ([24.0, 29.0, 44.0][combo_step])
-        var push_strength := 16.0 if sprint_tackle else ([7.4, 8.8, 16.5][combo_step])
-        var lift := 1.1 if sprint_tackle else ([1.5, 2.0, 2.6][combo_step])
+        var strength := maxf(melee_force_multiplier, 0.5)
+        var damage := (36.0 if sprint_tackle else ([24.0, 29.0, 44.0][combo_step])) * strength
+        var push_strength := (16.0 if sprint_tackle else ([7.4, 8.8, 16.5][combo_step])) * strength
+        var lift := (1.1 if sprint_tackle else ([1.5, 2.0, 2.6][combo_step])) * minf(strength, 1.6)
         velocity += dir * (4.7 if sprint_tackle else (3.2 if combo_step == 2 else 1.7))
         target.take_hit(dir * push_strength + Vector3.UP * lift, damage)
         if sprint_tackle:
@@ -302,8 +315,9 @@ func _attack() -> void:
         if prop_dir.length_squared() < 0.01:
             prop_dir = -global_basis.z
         prop_dir = prop_dir.normalized()
-        var prop_damage := 34.0 if attack_mode == 1 else 19.0
-        prop.take_hit(prop_dir * (12.5 if attack_mode == 1 else 9.5) + Vector3.UP * 1.9, prop_damage)
+        var strength := maxf(melee_force_multiplier, 0.5)
+        var prop_damage := (34.0 if attack_mode == 1 else 19.0) * strength
+        prop.take_hit(prop_dir * (12.5 if attack_mode == 1 else 9.5) * strength + Vector3.UP * 1.9, prop_damage)
         velocity += prop_dir * 0.8
     combo_step = 0
     combo_window = 0.0
@@ -313,8 +327,9 @@ func _grab_or_throw() -> void:
         return
     if held_target != null and is_instance_valid(held_target):
         var dir: Vector3 = -global_basis.z
+        var throw_mult := maxf(throw_force_multiplier, 0.5)
         held_target.set_held(false)
-        held_target.take_hit(dir * 13.5 + Vector3.UP * 5.2, 24.0)
+        held_target.take_hit(dir * 13.5 * throw_mult + Vector3.UP * 5.2 * throw_mult, 24.0 * throw_mult)
         held_target = null
         return
     var target = _find_grabbable(1.90)
@@ -344,7 +359,7 @@ func _find_grabbable(radius: float):
     for node in candidates:
         if not is_instance_valid(node): continue
         if node.is_in_group("enemy") and node.dead: continue
-        if node.is_in_group("physics_prop") and node.mass > 110.0: continue
+        if node.is_in_group("physics_prop") and node.mass > grab_mass_limit: continue
         var offset: Vector3 = node.global_position - global_position
         var dist: float = offset.length()
         if dist > radius: continue
