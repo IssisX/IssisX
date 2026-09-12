@@ -24,10 +24,19 @@ var attack_side := 1.0
 var traversal_lock := 0.0
 var _rig
 
+var machine_climb_target
+var machine_climb_active := false
+var machine_climb_time := 0.0
+var machine_climb_duration := 0.72
+var machine_climb_start := Vector3.ZERO
+var machine_climb_side := -1.0
+var _normal_collision_mask := 0
+
 func _ready() -> void:
     add_to_group("player")
     collision_layer = 1
     collision_mask = 1 | 2 | 4 | 8
+    _normal_collision_mask = collision_mask
     var collision := GeomUtil.add_capsule_collision(self, 0.46, 1.82)
     collision.position.y = 0.91
     _rig = HumanoidRigScript.new()
@@ -39,6 +48,8 @@ func configure(controls, camera) -> void:
     camera_rig = camera
 
 func receive_enemy_hit(damage: float) -> void:
+    if machine_climb_active:
+        _cancel_machine_climb()
     health = maxf(0.0, health - damage)
     hit_anim = 0.28
     if hud != null and hud.has_method("flash_damage"):
@@ -47,6 +58,83 @@ func receive_enemy_hit(damage: float) -> void:
 func receive_hazard_hit(damage: float, impulse: Vector3) -> void:
     receive_enemy_hit(damage)
     velocity += impulse
+
+func begin_machine_climb(machine) -> bool:
+    if machine == null or not is_instance_valid(machine):
+        return false
+    if machine_climb_active or held_target != null or health <= 0.0:
+        return false
+    var distance: float = global_position.distance_to(machine.global_position)
+    if distance > 5.8:
+        return false
+    machine_climb_target = machine
+    machine_climb_active = true
+    machine_climb_time = 0.0
+    machine_climb_start = global_position
+    var lateral: float = (global_position - machine.global_position).dot(machine.global_basis.x)
+    machine_climb_side = -1.0 if lateral <= 0.0 else 1.0
+    traversal_lock = machine_climb_duration
+    velocity = Vector3.ZERO
+    collision_mask = 0
+    if hud != null and hud.has_method("set_context"):
+        hud.set_context("LATCH // CLIMB MOVING MACHINE")
+    return true
+
+func _cancel_machine_climb() -> void:
+    machine_climb_active = false
+    machine_climb_target = null
+    machine_climb_time = 0.0
+    collision_mask = _normal_collision_mask
+
+func _update_machine_climb(delta: float) -> void:
+    if not machine_climb_active:
+        return
+    if machine_climb_target == null or not is_instance_valid(machine_climb_target):
+        _cancel_machine_climb()
+        return
+    if machine_climb_target.has_method("is_player_driven") and machine_climb_target.is_player_driven():
+        _cancel_machine_climb()
+        return
+
+    machine_climb_time += delta
+    var raw_t := clampf(machine_climb_time / machine_climb_duration, 0.0, 1.0)
+    var t := raw_t * raw_t * (3.0 - 2.0 * raw_t)
+    var machine = machine_climb_target
+    var side_point: Vector3 = (
+        machine.global_position
+        + machine.global_basis.x * machine_climb_side * 1.72
+        + machine.global_basis.z * 0.32
+        + Vector3.UP * 1.05
+    )
+    var cab_point: Vector3 = (
+        machine.global_position
+        - machine.global_basis.x * 0.95
+        + machine.global_basis.z * 0.12
+        + Vector3.UP * 1.72
+    )
+    var mid_t := clampf(t * 1.8, 0.0, 1.0)
+    var finish_t := clampf((t - 0.48) / 0.52, 0.0, 1.0)
+    var approach := machine_climb_start.lerp(side_point, mid_t)
+    var mount := side_point.lerp(cab_point, finish_t)
+    var path := approach.lerp(mount, finish_t)
+    path.y += sin(t * PI) * 0.72
+    global_position = path
+
+    var face: Vector3 = machine.global_position - global_position
+    face.y = 0.0
+    if face.length_squared() > 0.01:
+        rotation.y = lerp_angle(rotation.y, atan2(-face.x, -face.z), 0.34)
+    if _rig != null:
+        _rig.pose_climb(t, machine_climb_side)
+
+    if raw_t >= 1.0:
+        machine_climb_active = false
+        collision_mask = _normal_collision_mask
+        if machine.has_method("try_enter") and machine.try_enter(self):
+            machine_climb_target = null
+            return
+        machine_climb_target = null
+        global_position = side_point
 
 func _physics_process(delta: float) -> void:
     if hud == null or camera_rig == null:
@@ -61,6 +149,12 @@ func _physics_process(delta: float) -> void:
         combo_step = 0
     if engage_timer <= 0.0 and held_target == null:
         engaged_target = null
+
+    if machine_climb_active:
+        camera_rig.apply_look(hud.consume_look())
+        _update_machine_climb(delta)
+        _update_hud()
+        return
 
     var axis: Vector2 = hud.move_axis + _keyboard_axis()
     if axis.length() > 1.0:
@@ -322,7 +416,9 @@ func _update_hud() -> void:
         hud.set_health(health / max_health)
     if hud.has_method("set_target"):
         hud.set_target(engaged_target)
-    if held_target != null and is_instance_valid(held_target):
+    if machine_climb_active:
+        hud.set_context("LATCHED // CLIMBING MACHINE")
+    elif held_target != null and is_instance_valid(held_target):
         if held_target.is_in_group("enemy"):
             hud.set_context("GRAPPLE // HIT TO THROW")
         elif held_target.is_in_group("physics_prop"):
