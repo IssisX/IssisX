@@ -73,7 +73,7 @@ func _push_dynamic_arm_contacts() -> void:
             if body.has_method("machine_hit"):
                 body.machine_hit(force * 0.42, direction)
             else:
-                var impulse_mag := minf((8.0 + speed * 7.5) * body.mass, 2400.0)
-                var contact_offset := body.to_local(collision.global_position)
+                var impulse_mag: float = minf((8.0 + speed * 7.5) * body.mass, 2400.0)
+                var contact_offset: Vector3 = body.to_local(collision.global_position)
                 body.apply_impulse(direction * impulse_mag + Vector3.UP * body.mass * 0.55, contact_offset)
                 body.apply_torque_impulse(Vector3(direction.z, 0.18, -direction.x) * body.mass * minf(speed, 8.0) * 0.28)
