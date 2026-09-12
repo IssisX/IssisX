@@ -37,6 +37,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
     if OS.get_environment("KF_CAPTURE") == "1":
         return
+    _update_interaction_prompt()
     _reclaim_timer = maxf(0.0, _reclaim_timer - delta)
     if _reclaim_timer <= 0.0:
         _try_enemy_reclaim()
@@ -106,6 +107,8 @@ func _build_gameplay() -> void:
     player.configure(hud, camera_rig)
     player.request_machine_entry.connect(_on_player_use)
     camera_rig.set_target(player)
+    camera_rig.distance = 8.5
+    camera_rig.height = 2.8
 
     excavator = ExcavatorScene.new()
     excavator.position = Vector3(4.0, -0.17, -3.0)
@@ -146,24 +149,28 @@ func _retarget_enemies(target_node) -> void:
             enemy.set_target(target_node)
 
 func _on_player_use(user) -> void:
-    if excavator.try_enter(user):
+    if excavator.request_hijack(user):
         return
-    if user.has_method("begin_machine_climb"):
-        user.begin_machine_climb(excavator)
+    if hud != null and hud.has_method("set_interaction_hint"):
+        hud.set_interaction_hint("MOVE CLOSER // USE WHEN THE EXCAVATOR IS WITHIN REACH")
 
 func _on_machine_entered(machine) -> void:
     camera_rig.set_target(machine)
-    camera_rig.distance = 13.4
-    camera_rig.height = 5.0
+    camera_rig.distance = 12.2
+    camera_rig.height = 4.4
     _retarget_enemies(machine)
     _reclaim_cooldown = 4.0
+    if hud != null and hud.has_method("set_interaction_hint"):
+        hud.set_interaction_hint("LEFT: DRIVE + STEER    RIGHT: SWING + BOOM    CURL / CLAMP / EXIT")
 
 func _on_machine_exited(_machine) -> void:
     camera_rig.set_target(player)
-    camera_rig.distance = 9.8
-    camera_rig.height = 3.2
+    camera_rig.distance = 8.5
+    camera_rig.height = 2.8
     _retarget_enemies(player)
     _reclaim_cooldown = 2.8
+    if hud != null and hud.has_method("set_interaction_hint"):
+        hud.set_interaction_hint("")
 
 func _on_machine_disabled(machine) -> void:
     if machine.player_driver != null:
@@ -171,10 +178,35 @@ func _on_machine_disabled(machine) -> void:
     hud.set_context("EXCAVATOR DISABLED // RETURN TO FOOT CONTROL")
     _retarget_enemies(player)
 
+func _update_interaction_prompt() -> void:
+    if hud == null or not hud.has_method("set_interaction_hint") or player == null or excavator == null:
+        return
+    if excavator.player_driver != null:
+        hud.set_interaction_hint("LEFT: DRIVE + STEER    RIGHT: SWING + BOOM    CURL / CLAMP / EXIT")
+        return
+    if not player.visible or player.health <= 0.0:
+        hud.set_interaction_hint("")
+        return
+    if excavator.disabled:
+        var disabled_dist: float = player.global_position.distance_to(excavator.global_position)
+        hud.set_interaction_hint("EXCAVATOR DISABLED // WRECKAGE REMAINS PHYSICAL") if disabled_dist < 6.5 else hud.set_interaction_hint("")
+        return
+
+    var distance: float = player.global_position.distance_to(excavator.global_position)
+    var climb_range: float = float(player.get("machine_climb_range")) if player.get("machine_climb_range") != null else 5.8
+    if distance <= 3.5:
+        hud.set_interaction_hint("USE  //  HIJACK EXCAVATOR")
+    elif distance <= climb_range:
+        hud.set_interaction_hint("USE  //  LATCH + CLIMB EXCAVATOR")
+    elif mission != null and int(mission.get("stage")) == 1:
+        hud.set_interaction_hint("FOLLOW THE ORANGE MARKER // CLOSE ON THE EXCAVATOR")
+    else:
+        hud.set_interaction_hint("")
+
 func _try_enemy_reclaim() -> void:
     if excavator == null or excavator.disabled:
         return
-    if excavator.player_driver != null or excavator.enemy_driver != null:
+    if excavator.player_driver != null or excavator.enemy_driver != null or excavator.is_hijack_in_progress():
         return
     _reclaim_cooldown = maxf(0.0, _reclaim_cooldown - 0.45)
     if _reclaim_cooldown > 0.0:
